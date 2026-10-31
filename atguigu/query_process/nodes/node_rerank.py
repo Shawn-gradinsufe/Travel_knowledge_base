@@ -1,276 +1,167 @@
 # atguigu/query_process/nodes/node_rerank.py
 
+from atguigu.config.config import TourismConfig
 from atguigu.query_process.base import NodeBase
 from atguigu.query_process.state import QueryGraphState
-from atguigu.tool.json_format import json_format
 from atguigu.tool.logger import logger
 from atguigu.tool.rerank_tool import text_rerank
+
+# 动态 TopK 参数（沿用原实现的断崖检测思路）
+RERANK_MAX_TOPK = 10
+RERANK_MIN_TOPK = 3
+RERANK_GAP_RATIO = 0.25
+RERANK_GAP_ABS = 0.20
 
 
 class NodeRerank(NodeBase):
     """
-    节点功能：使用 Cross-Encoder 模型对 RRF 后的结果进行精确打分重排。
+    重排序节点：Cross-Encoder 精确打分 + 断崖检测动态截断。
+
+    新增的两点：
+    1. **本地优先**：联网结果的分数乘一个惩罚系数（默认 0.85），
+       保证同样相关的情况下本地知识库排在前面；
+       但如果用户问的是价格/开放时间这类事实字段，则不打折——
+       这类信息本地本来就没有，让联网结果正常竞争才对。
+    2. **重排失败降级**：rerank 接口不可用时退回 RRF 分数排序，不中断问答。
     """
 
-    # 覆盖基类的 name 属性，标识节点名称
     name: str = "node_rerank"
 
     def process(self, state: QueryGraphState):
-        """
-        节点逻辑
-        :param state: 工作流状态对象
-        :return: 更新后的状态对象
-        """
-        rewritten_query = state.get("rewritten_query")
-        rrf_chunks = state.get("rrf_chunks")
-        web_search_docs = state.get("web_search_docs")
+        rewritten_query = state.get("rewritten_query") or state.get("original_query") or ""
+        rrf_chunks = state.get("rrf_chunks") or []
+        web_docs = state.get("web_search_docs") or []
+        is_fact_query = bool(state.get("is_fact_query"))
 
-        # 之前所有的分数score都不再关注了，因为重排序模型会重新精确打分
-        # 先将rrf与web搜索的chunk进行组合，得到的是一个列表，列表中每个元素是一个字典，
-        # merged_chunks列表中包含了rrf融合后的chunk和web检索的chunks
-        merged_chunks = rrf_chunks + web_search_docs
-        # 对merged_chunks中所有的chunk字典进行整理
-        merged_chunks = [
-            {
-                "title": chunk.get("item_name", "title"),
-                "content": chunk.get("content"),
-                "url": chunk.get("url",""),
-                "score": chunk.get("score")
-            }
-            for chunk in merged_chunks]
+        merged = self.normalize(rrf_chunks, web_docs)
+        if not merged:
+            logger.warning("没有可重排的候选")
+            return {"reranked_docs": []}
 
-        # 使用rerank模型对整理后的merged_chunks进行打分
-        rerank_res = text_rerank(
-            query=rewritten_query,
-            texts=[chunk.get('content') for chunk in merged_chunks],
-            limit=len(merged_chunks)
+        ranked = self.rerank(rewritten_query, merged)
+        ranked = self.apply_web_penalty(ranked, is_fact_query)
+        ranked, web_kept = self.gate_web(ranked, rrf_chunks, is_fact_query)
+
+        final = self.cut_by_cliff(ranked)
+        logger.info(
+            f"重排完成：候选 {len(merged)} 条 -> 保留 {len(final)} 条"
+            f"（事实型问题={is_fact_query}，保留联网结果={web_kept}）"
         )
-        # print(json_format(rerank_res))
+        return {"reranked_docs": final}
 
-        # rerank打分的结果得到了，但是还未把分数赋值回去，需要重新整理
-        # 最后再把chunk根据分数重新排序,也就是把merged_chunks中对应的分数替换成rerank_res中的分数
-        # 由于rerank_res也是一个列表，按照score分数由大到小排列好了，index是原来merged_chunks中chunk对应的索引
-        # 因此遍历的时候应该思考沿着哪个列表的顺序遍历可以与另一个列表的元素一一对应
-        for item in rerank_res:
-            merged_chunks[item['index']]['score'] = item['score']
+    @staticmethod
+    def gate_web(ranked: list[dict], rrf_chunks: list, is_fact_query: bool) -> tuple[list[dict], bool]:
+        """
+        联网结果的准入判断（"本地优先"的落地实现）。
 
-        # 替换完成，将merged_chunks重新按照rerank_score排序
-        # merged_chunks本身就是一个列表，可以使用sorted,sorted传入的第一个参数是一个可迭代对象，
-        rerank_chunks = sorted(merged_chunks, key=lambda x:x['score'],reverse=True)
+        只把联网结果当**补位**，不当竞争者：
+          - 用户在问价格/开放时间这类事实 → 放行（本地本来就没有）
+          - 本地召回不足 3 条，或本地最高分低于 0.55 → 放行（本地覆盖不住）
+          - 其余情况直接丢弃联网结果
 
+        为什么必须这么做：实测发现，如果不加这道闸，"大理怎么玩三天"这种
+        本地完全能答的问题也会混进一堆 SEO 页，模型会把联网里的价格和本地内容
+        混着写，还标成本地引用——这是最坏的一种错误。
+        """
+        top_local = max((d.get("rerank_score") or 0 for d in ranked if d.get("source") == "local"), default=0)
+        local_count = len(rrf_chunks)
 
-        # 断崖检测，从重排序后的chunks中获取分数较高的，不能直接写死topK，而是要动态获取，
-        # 否则拿到的chunks会出现噪音比例过高或关联度高的chunk拿不到
+        if is_fact_query:
+            return ranked, True
+        if local_count < 3 or top_local < 0.55:
+            logger.info(f"本地覆盖不足（{local_count} 条，最高分 {top_local:.3f}），保留联网补位")
+            return ranked, True
 
-        # 设定理想数量条件(实际情况需要根据具体业务来定)
-        # 动态 TopK：硬上限：最多取前 N 条（<=10）
-        RERANK_MAX_TOPK: int = 10
-        # 最小 TopK：至少保留前 N 条（>=1，且 <= RERANK_MAX_TOPK）
-        RERANK_MIN_TOPK: int = 3  # 总数最少条数
-        # 断崖阈值（相对）
-        RERANK_GAP_RATIO: float = 0.25
-        # 断崖阈值（绝对）
-        RERANK_GAP_ABS: float = 0.20
+        kept = [d for d in ranked if d.get("source") == "local"]
+        if len(kept) < len(ranked):
+            logger.info(f"本地已覆盖（{local_count} 条，最高分 {top_local:.3f}），丢弃联网结果")
+        return kept, False
 
+    # ------------------------------------------------------------------
 
-        # 需要根据实际情况来决策符合条件的chunk数量能否落在理想数量范围内
-        use_max_topk = min(RERANK_MAX_TOPK, len(rerank_chunks))
-        use_min_topk = min(RERANK_MIN_TOPK, len(rerank_chunks))
+    @staticmethod
+    def normalize(rrf_chunks: list, web_docs: list) -> list[dict]:
+        merged: list[dict] = []
+        for chunk in rrf_chunks:
+            breadcrumb = chunk.get("breadcrumb") or ""
+            title = chunk.get("title") or ""
+            display_title = f"{breadcrumb} > {title}" if breadcrumb and breadcrumb != title else title
+            merged.append({
+                "title": display_title,
+                "content": chunk.get("content") or "",
+                "url": chunk.get("url") or "",
+                "score": chunk.get("score") or 0,
+                "source": "local",
+                "city_display": chunk.get("city_display") or "",
+                "content_type": chunk.get("content_type") or "",
+                "entity_name": chunk.get("entity_name") or "",
+                "doc_title": chunk.get("doc_title") or "",
+                "source_file": chunk.get("source_file") or "",
+                "source_path": chunk.get("source_path") or "",
+            })
 
-        break_idx = use_max_topk
+        for doc in web_docs:
+            merged.append({
+                "title": doc.get("title") or "",
+                "content": doc.get("content") or "",
+                "url": doc.get("url") or "",
+                "score": doc.get("score") or 0,
+                "source": "web",
+                "city_display": "",
+                "content_type": "",
+                "entity_name": "",
+                "doc_title": "",
+                "source_file": "",
+                "source_path": "",
+            })
+        return merged
 
-        for i in range(0,use_max_topk-1): # 实际这边怎么样都可以，既可以严格保留固定条数，具体和业务方敲定
-            current_score = rerank_chunks[i].get('score')
-            next_score = rerank_chunks[i+1].get('score')
-            # 计算当前分数与下一个分数的差值，并判断是否满足断崖条件
-            abs_gap = current_score - next_score
-            rel_gap = abs_gap / (current_score + 1e-6)
+    @staticmethod
+    def rerank(query: str, merged: list[dict]) -> list[dict]:
+        try:
+            res = text_rerank(
+                query=query,
+                texts=[doc.get("content") or "" for doc in merged],
+                limit=len(merged),
+            )
+            for item in res:
+                idx = item.get("index")
+                if idx is not None and 0 <= idx < len(merged):
+                    merged[idx]["rerank_score"] = item.get("score")
+        except Exception as e:
+            logger.warning(f"重排序接口失败，退回按召回分数排序: {e}")
+
+        for doc in merged:
+            if doc.get("rerank_score") is None:
+                doc["rerank_score"] = doc.get("score") or 0
+
+        return sorted(merged, key=lambda x: x["rerank_score"], reverse=True)
+
+    @staticmethod
+    def apply_web_penalty(ranked: list[dict], is_fact_query: bool) -> list[dict]:
+        if is_fact_query:
+            return ranked
+        penalty = TourismConfig.web_penalty
+        for doc in ranked:
+            if doc.get("source") == "web":
+                doc["rerank_score"] = doc["rerank_score"] * penalty
+        return sorted(ranked, key=lambda x: x["rerank_score"], reverse=True)
+
+    @staticmethod
+    def cut_by_cliff(ranked: list[dict]) -> list[dict]:
+        if not ranked:
+            return []
+
+        use_max = min(RERANK_MAX_TOPK, len(ranked))
+        break_idx = use_max
+
+        for i in range(use_max - 1):
+            current = ranked[i].get("rerank_score") or 0
+            nxt = ranked[i + 1].get("rerank_score") or 0
+            abs_gap = current - nxt
+            rel_gap = abs_gap / (current + 1e-6)
             if rel_gap > RERANK_GAP_RATIO or abs_gap > RERANK_GAP_ABS:
-                break_idx = i + 1
+                break_idx = max(i + 1, min(RERANK_MIN_TOPK, use_max))
                 break
 
-        # 断崖检测完成，截取分数较高的前N条数据
-        rerank_chunks = rerank_chunks[:break_idx]
-        return {
-            "rerank_docs": rerank_chunks,
-        }
-
-
-
-
-
-
-
-
-
-if __name__ == '__main__':
-    node = NodeRerank()
-    init_state = {
-        "rewritten_query": "关于HAK180烫金机如何使用",
-        "rrf_chunks": [
-            {
-                "content": "## HAK 180 烫金机\n\n产品安全手册（简体中文）\n\n感谢您购买 HAK 180 烫金机。\n\n在使用本设备之前，请先阅读本手册，包括所有预防措施。阅读本手册后，请妥善保管。\n\n有关使用本设备的更多信息，请参阅使用说明书，其可在兄弟 (中国)商业有限公司技术服务支持网站 http://www.95105369.com/Web/Manuals.aspx 上找到。建议您先通读使用说明书，再使用本设备。\n\n如需获得常见问题解答、故障排除和说明书，请访问\n\nhttp://www.95105369.com。\n\n对于本设备所有者不遵守本指南中规定的说明操作而导致的损害，Brother 不承担任何责任。",
-                "part": 0,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748361,
-                "title": "## HAK 180 烫金机",
-                "file_title": "hak180产品安全手册",
-                "score": 0.03333333333333333,
-                "source": "local"
-            },
-            {
-                "content": "## HAK 180 烫金机\n\n对于本设备所有者不遵守本指南中规定的说明操作而导致的损害，Brother 不承担任何责任。\n\n•\t对于保养、调整或维修事宜，请联系 Brother 呼叫中心或您当地的Brother 经销商。\n\n•\t如果本设备工作不正常或发生任何错误，请关闭本设备，拔下所有电缆，然后联系 Brother 呼叫中心或您当地的 Brother 经销商。\n\n•\t本文档中提供的信息可能会随时更改，恕不另行通知。\n\n•\t严禁未经授权擅自复制或重制本文档的任何部分或全部内容。",
-                "part": 1,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748362,
-                "title": "## HAK 180 烫金机",
-                "file_title": "hak180产品安全手册",
-                "score": 0.03278688524590164,
-                "source": "local"
-            },
-            {
-                "content": "## 设备\n\n•\t请勿拆解本设备。拆解本设备可能会导致火灾或触电。\n\n•\t请勿尝试自行维修本设备。打开或拆下盖子可能使您接触到危险电压点以及带来其他风险，并且可能使您的保修失效。对于所有维修事宜，请联系 Brother 呼叫中心或您当地的 Brother 经销商。\n\n•\t请在以下环境使用本设备：温度保持在 10 °C 和 32 °C 之间，湿度保持在 20% 和 80% 之间，无冷凝。\n\n•\t请勿使本设备受到阳光直射、过热、接触明火、腐蚀性气体、湿气或灰尘。否则可能产生触电、短路或火灾的风险，从而导致损坏设备和/ 或导致设备无法运行。\n\n•\t请勿将设备放在加热器、空调、电风扇或水附近。",
-                "part": 1,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748366,
-                "title": "## 设备",
-                "file_title": "hak180产品安全手册",
-                "score": 0.03225806451612903,
-                "source": "local"
-            },
-            {
-                "content": "## 设备\n\n•\t请先阅读这本手册，再尝试操作本设备或尝试进行任何维护。不按照这些说明操作可能会提高发生人员受伤或财产损坏（包括火灾、触电、烧伤或窒息所致）的风险。对于本设备所有者不遵守本指南中规定的说明操作而导致的损害，Brother 不承担任何责任。\n\n•\t请勿在未去除所有包装材料的情况下使用本设备，包括本设备内部的任何附加的包装材料。否则可能会产生火灾的风险。\n\n•\t请勿拆解本设备。拆解本设备可能会导致火灾或触电。",
-                "part": 0,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748365,
-                "title": "## 设备",
-                "file_title": "hak180产品安全手册",
-                "score": 0.031746031746031744,
-                "source": "local"
-            },
-            {
-                "content": "![](images/f93ddcd837fa399f0c165da43b0badb013c2961acc828a095c6d98f0a660dbca.jpg)  \nD01WD7001-00\n\nSCHN",
-                "part": 0,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748360,
-                "title": "无标题",
-                "file_title": "hak180产品安全手册",
-                "score": 0.031009615384615385,
-                "source": "local"
-            },
-            {
-                "content": "## 设备\n\n![](images/71f9e17a760882436455f7ddc3a5fd358ce821ceb6e598b76d013d93dc26c943.jpg)",
-                "part": 6,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748371,
-                "title": "## 设备",
-                "file_title": "hak180产品安全手册",
-                "score": 0.031009615384615385,
-                "source": "local"
-            },
-            {
-                "content": "## 设备\n\n如果遵守了操作说明进行操作，但是设备不能正确运行，请仅调整操作说明中涵盖的控制。错误调整其他控制可能导致损坏并且通常需要合格技术进行全面工作以将本设备恢复到正常操作。Brother不建议使用 Brother 正品烫金膜盒以外的其他品牌烫金膜盒。如果使用与本设备不兼容的耗材导致损坏本设备的任何零件，由此导致的任何维修可能不在保修范围内。",
-                "part": 0,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748379,
-                "title": "## 设备",
-                "file_title": "hak180产品安全手册",
-                "score": 0.030303030303030304,
-                "source": "local"
-            },
-            {
-                "content": "## HAK 180 烫金机\n\n•\t严禁未经授权擅自复制或重制本文档的任何部分或全部内容。\n\n•\t请注意，对于使用通过本设备制作的产品造成的任何损坏或利润损失，或者故障、维修导致的数据消失或更改，或者第三方提出的任何索赔，我们不承担任何责任。",
-                "part": 2,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748363,
-                "title": "## HAK 180 烫金机",
-                "file_title": "hak180产品安全手册",
-                "score": 0.029850746268656716,
-                "source": "local"
-            },
-            {
-                "content": "## 设备\n\n•\t将本设备放置在平整、水平且稳定的表面上（如桌面），避免震动和冲击。\n\n•\t将本设备放置在通风良好的环境中。\n\n•\t为了防止人员受伤，请谨慎操作，避免将手指放置在图中所示的区域中。\n\n![](images/944ad0b1ae642d4a65bc1b40c979beeb12bc30e6a409b9d9666ee013ff48cc60.jpg)\n\n![](images/3bf3b3639360a2c43c223a6ee46c44b27d54f4a79506a17a8b99e6ba4703df40.jpg)",
-                "part": 0,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748375,
-                "title": "## 设备",
-                "file_title": "hak180产品安全手册",
-                "score": 0.029411764705882353,
-                "source": "local"
-            },
-            {
-                "content": "## 设备\n\n•\t如果水、其他液体或金属物体进入设备内部，请立即从电源插座中拔掉设备的插头，然后联系 Brother 呼叫中心或您当地的 Brother经销商。\n\n•\t请勿在卡纸或有纸张散落在设备内部的情况下尝试使用本设备。纸张与定影单元长时间接触可能导致火灾。\n\n•\t请勿使用任何易燃物品、任何类型的喷雾剂包含酒精或氨水的有机溶剂/液体来清洁本设备的内部或外部。否则可能导致火灾。请改用无绒干抹布。有关如何清洁本设备的说明，请参阅使用说明书。",
-                "part": 3,
-                "item_name": "BrotherHAK180烫金机",
-                "id": 469867433341748368,
-                "title": "## 设备",
-                "file_title": "hak180产品安全手册",
-                "score": 0.028985507246376812,
-                "source": "local"
-            }
-        ],
-        "web_search_docs": [
-            {
-                "title": "无版烫金+连续烫印?论一台优秀烫金机的自我修养!兄弟HAK180烫金机评测",
-                "content": "去年底,Brother在进博会发布HAK180烫金机,作为Brother旗下新品类,烫金机是其在打印机、一体机、标签机、条码机、扫描仪等之后,布局的又一办公文印设备品。作为一款主要针对高端文印店推出的产品,HAK180的问世,令烫金品在文印店中即可完成,无需再像以前跑到制作工厂去定制,简化流程提升效率;对于烫金需求方而言,也就是企业、学校、花店等,无需频繁的确认,减少了制作流程,向文印店提出需求后,在文印店中就可完成,简单的烫金需求甚至可以做到“立等可取”,一改了传统需要在“需求方,供应商,制作工厂”间频繁沟通、确认、修改的流程,HAK180让烫金流程更省时、更省力、更省沟通。那么,烫金机究竟如何工作,长相又如何,且随着笔者一同去认识这款产品! 我们先观看一段视频,了解下烫金机的用途 细分市场需求,灵巧机身,任性安置 近年来,随着文印市场逐渐呈现精细化发展趋势,高端文印的需求逐渐增加,大势之下兄弟HAK180烫金机应运而生。烫金机,顾名思义,可以简单理解为,在纸张表面烫印一层金色,当然,此“金”非彼“金”,就像上面提到的奖状、春联,只是在技术上有些特殊。 第一眼看到兄弟HAK180烫金机,如非提前知晓这是一台烫金机,可能会让人误以为是一台馈纸式扫描仪,毕竟从外观来看,兄弟HAK180烫金机与扫描仪有着相似的外观,尤其是进纸、出纸托盘的设计,都有着一定相似度。 机身顶部的进纸托盘可以存放大量用于烫印的纸张,HAK180支持多种纸张质量规格,像办公常用70g/m²的A4纸张,以及更厚更重350g/m²的A4纸张都是可以正常实现烫印的,其中90g/m²纸张可以同时存放44张,350g/m²纸张可以同时存放12张,并可实现纸张自动、连续进纸烫金(如文章起始视频所示),这得益于其采用的“多页连续烫金”技术,可以处理批量烫印任务。 兄弟HAK180烫金机还支持“无版烫金”,整个烫印过程无需提前制版。如上图所示,比如我们需要制作一张用于表彰员工,或是学生的荣誉证书/奖状,只需提前制作一张《荣誉证书》的样式(设计图),利用激光打印机,将样式内容打印出来,再将带有内容的一侧,面向HAK180放入到进纸托盘中,点击启动键后,HAK180可自动识别激光打印机打印的内容,并在激光打印机打印的内容上,进行烫印工作,只需静待数秒,烫印成品就可从出纸托盘输出。",
-                "url": "https://www.163.com/dy/article/HBO219SA05118VMB.html",
-                "source": "web"
-            },
-            {
-                "title": "兄弟(中国)发布烫金机,满足高端文印需求",
-                "content": "在邀请函、贺卡或者是红包上轻松呈现出流光溢彩的烫金效果,随着兄弟(中国)23日正式推出的Brother HAK180烫金机而成为现实。这款体形轻巧烫印机的面市,改变了以往需要到工厂定制才能实现烫金文印品的历史。个人用户只需在纸张介质上使用激光打印机打印好内容,再放入兄弟烫金机HAK180中,即可实现一键烫印,省去繁杂的软件编辑、电脑连接过程。 近年来,文印市场逐渐呈现精细化发展趋势,拥有核心技术的兄弟烫金机HAK180则恰好是可以满足高端文印需求的一款产品。为了让更多用户体验这股“金色能量”,兄弟(中国)携全新烫金机Brother HAK180,以“引领鎏金岁月,创新成就JIN界”为发布会主题,于12月23日,带来了一场线上多平台直播,线下多地共享的双线联动发布会,向中国用户全方位展示烫金之美。 兄弟(中国)商业有限公司董事长兼总裁尹炳新先生在当天的发布会上介绍,相关数据显示,中国是全球烫金文印市场规模最大的国家,占据全球60%的份额,其次是德国和日本。基于中国庞大的市场潜力,为满足高端文印市场对于个性化烫金需求,解决繁杂制版工序及成本高企等诸多困扰,兄弟集团决定在中国市场推出 “便捷使用”和“精品烫印”于一身的烫金机。 尹炳新先生介绍,以往实现烫金效果需要把产品送往工厂,交由大型专业设备进行处理。而兄弟(中国)推出的HAK180烫金机体积小巧,无需制版,避免环境污染,操作简便。据了解,这款产品可瞬间实现烫金效果,可广泛适用于各类场景,如精美邀请函,高档菜单与座位卡,激励学子的金色奖状等各类需要高品质,个性化定制的场景,满足学校,商务公司,高档宴会酒店等多用户需求。 据介绍,HAK180烫金机广泛支持各类纸张,胜任各式复杂情况,可高效便捷地为用户完成繁重任务。另外,HAK180烫金机在无版烫金与读秒烫金的基础之上,采用“金”“银”“红”三色烫金薄膜设计,让烫金效果达到纤毫毕现的水准。无论是纤细线条,亦或微小字体,都能精准呈现。清晰的烫印效果,杜绝棱角、毛边、断线、模糊等恼人问题。同时烫印的内容耐得住长期保存,即便用手指刮抠也不会掉色或脱落,高品质烫金将为用户带来无可替代的体验。 整体上,做为凝聚着百年企业核心技术的Brother HAK180烫金机集合了兄弟集团始终坚持的高质量与高性价比的产品力,赋能其“无版烫印”、“多页连续烫金”、“纤毫毕现品质呈现”多重创新技术,以提升用户烫金体验,为高端文印与商务交流提供更优质、更创新的解决方案。 顺应市场的需求,兄弟(中国)面向中国市场推出的Brother HAK180烫金机,以“无版烫",
-                "url": "https://www.thepaper.cn/newsDetail_forward_15996505",
-                "source": "web"
-            },
-            {
-                "title": "双线联动发布,Brother烫金机震撼登场",
-                "content": "为满足高端文印行业对于个性化烫金需求,解决繁杂制版工序及成本高企等的诸多困扰,兄弟(中国)商业有限公司(下文简称兄弟(中国))推出了Brother HAK180烫金机,融汇“便捷使用”和“精品烫印”于一身。 烫金之美,成就“金”彩 其实早在第四届进博会上,Brother就以“御峰之行”为主题,首次亮相集团新品Brother HAK180烫金机,向企业代表团,专业交易团等来宾展示百年Brother的产品研发实力,获得一致好评。 为了让更多用户体验这股“金色能量”,兄弟(中国)携全新烫金机Brother HAK180,以“引领鎏金岁月,创新成就Jin界”为发布会主题,于12月23日,带来了一场线上多平台直播,线下多地共享的双线联动发布会,向大家全方位展示烫金之美。 HAK180烫金机集合了Brother始终坚持的高质量与高性价比的产品力,赋能Brother HAK180烫金机“无版烫印”、“多页连续烫金”、“纤毫毕现品质呈现”多重创新技术,提升用户烫金体验,为高端文印与商务交流提供更优质、更创新的解决方案。 画龙点“金”,“无版烫印”高效定制 兄弟(中国)全新推出的Brother HAK180烫金机,采用“无版烫金”技术,不仅降低私人定制成本,大幅提升工作效率,还能满足私人定制专属烫金需求,获得客户青睐。 在书法家 “点金”表演环节,书法家的诸幅作品,经过一键烫金之后,呈现出了一幅幅色泽饱满,线条流畅的烫金艺术品。向与会来宾近距离展示了Brother HAK180烫金机不被制版所限制,自由制作,随心烫金,即时可取的全方位“硬核”实力。 创新“多页连续烫金”,立等可取 在发布会入口处的互动环节, 通过现场连续烫金,来宾在几秒内就可获得细节清晰的升级版烫金名片。面对个性化烫金需求时,Brother烫金机HAK180告别手送的烦杂流程,实现多页自动连续烫金。无版烫金的技术搭配连续烫金的能力,向来宾展示Brother HAK180烫金机宛如“魔术表演”般的多样魅力。 HAK180烫金机还广泛支持各类纸张,胜任各式复杂情况,高效便捷地为您完成繁重任务。 除此之外,Brother HAK180烫金机凭借其优异的表现,广泛适用于各类场景。比如精美邀请函,高档菜单与座位卡,激励学子的金色奖状等各类需要高品质,个性化定制的场景,满足学校,商务公司,高档宴会酒店等多用户需求。",
-                "url": "https://zhuanlan.zhihu.com/p/449087060",
-                "source": "web"
-            },
-            {
-                "title": "HAK180",
-                "content": "HAK180 烫金机 零售价 面议 最大15PPM烫金速度  可选7PPM烫金速度  无版烫印  配备最大44页标准ADF进纸器  支持省膜模式  10字符x2行LCD液晶屏  HAK180烫金机,凭借其高速、高品质、以及出色的细节小字烫印效果,成为定制化专属机型。可烫印90g/m²~350g/m²的A4各类型纸张,支持各类广泛的应用领域。 高效、稳定的进纸结构 配备44页标准ADF进纸器,支持90g/m²~350g/m²的各类纸张(普通纸、薄纸、再生纸、厚纸等),进纸通道结构稳定可靠,支持连续烫印。 * 350g/m²支持12页自动进纸 * 最大支持44页进纸容量(90g/m²)烫印面朝下 高速连续烫金 HAK180针对不同厚度、介质的纸张提供两种可选烫金速度。15ppm满足普通规格纸张的高效烫金需求,7ppm适合稍厚纸张的烫金。 10字符×2行LCD液晶屏 10字符×2行LCD液晶屏,2个自定义按键,操作直观,方便快捷。 产品规格  一般参数  正常工作环境(温度): 10 ~ 32 摄氏度(50 ~ 90 华氏度) 正常工作环境(相对湿度): 20 % ~ 80 % 机器尺寸: W 384.2mm×D 330.2mm×H 356.2mm 重量(含包装箱): 16.9kg 电源: 220~240 V 消费电力(烫印中): 少于340W 消费电力(待机中): 少于7W 消费电力(关机): 少于0.04W LCD液晶屏尺寸: 48.0mm×10.9mm 节省烫金膜功能: 支持(在省膜模式中“跳过”和“中间”功能, 仅适用全幅烫金膜盒) 烫印参数  最大烫印速度 (A4): 最高达15 ppm 可选烫印速度(A4): 7 ppm 视频 烫金机-HAK180-烫印速度调整-7PPM 烫金机-HAK180-安装耗材 烫金机-HAK180-更换耗材",
-                "url": "https://www.brother.cn/hak/hak180",
-                "source": "web"
-            },
-            {
-                "title": "高速高品质 定制化专属,兄弟HAK180烫金机让你的文印店抢占先机",
-                "content": "Brother兄弟(以下简称“兄弟”)推出的HAK180烫金机凭借其高速、高品质、以及出色的细节小字烫印效果,成为定制化专属机型,专业实力为邀请函、贺卡、请柬等个性化定制需求提供了更多的便利,最终帮助用户实现产业升级、促进文印服务往高端化发展。同时,无版烫印、支持省膜模式,大幅降低运营成本,使用效率更高,免去使用者的顾虑,为业务保驾护航。   紧凑体积,简约外观 外观方面,这款HAK180烫金机产品给人以沉稳扎实的感觉。产品颜色为黑色,磨砂的质感使得产品在使用时不易留下指纹,更具耐磨性。一体机整体观感棱角分明,但机身边角处均采用了圆润的设计,很大程度避免了用户在使用时发生不必要的磕碰。烫金机正面采用斜面设计,使得操作更加便捷舒适,摁键设置不用半蹲操作。并且外观还获得了2021年的日本GOOD DESIGN奖。       操作面板采用经济性和操作性适中的10字符*2行LCD液晶屏+按键的方式,操作直观,方便快捷。对于打印店快速、效率的工作环境来说,简洁明了的直观显示非常友好。       在体积方面,兄弟HAK180体积大小为384.2mm*330.2mm*356.2mm,作为一台无版烫金机,这样的机身体积可以摆放在室内桌子上的任何位置。",
-                "url": "https://www.163.com/dy/article/HC5ISR9H05119GO7.html",
-                "source": "web"
-            },
-            {
-                "title": "烫金机",
-                "content": "烫金机 用途 个性化定制 红包烫印 奖状烫印 菜单烫印 信头烫印 名片烫印 请柬/邀请函烫印 行业 礼品店 图文行业 特殊行业 婚庆公司 特殊功能 节省烫金膜 两档烫印速度可选 ADF自动进纸 连续烫印 A4及以下烫印 最大烫印速度 15ppm 烫金机 HAK180 烫金机 最大15PPM烫金速度  可选7PPM烫金速度  无版烫印  配备最大44页标准ADF进纸器  支持省膜模式",
-                "url": "https://www.brother.cn/hak",
-                "source": "web"
-            },
-            {
-                "title": "注册免费试用Brother便携式移动办公设备",
-                "content": "三步轻松制作标签 180度旋转打印功能 选择适合的标签模板并编辑内容 可导出标签打印记录 将标签模板传输至标签打印机 可设置管理键的密码 使用标签打印机独立打印标签 适应不同工作环境 可与电脑连接使用 与电脑连接 使用标签制作软件制作标签。 也可独立使用 预先传送标签模板后 仅使用标签打印机便可打印标签。 两种打印方式可选 “连续模式” 连续模式能够完美胜任大批量的粘贴工作。 “剥离模式” 无需手动剥离标签底纸的剥离模式,便于需要频繁粘贴的工作。 ※标签剥离器为选配件。 6MB大内存容量 ① 最多可储存99个模板文件 ② 最多可调用64999行Excel数据(储存一个模板时) 适用各种卷式热敏标签纸 搭载传输/反射传感器, 可对应成本较低的127mm的卷式热敏标签纸。 宽111mm 重量仅1.64kg 可摆放在店铺柜台等狭小的场所,也可随身携带。 标配的有线LAN接口 可在工作现场作为共享打印机使用 使用网络管理实用程序──BRAdmin, 可将公司总部创建的标签模板传送并储存至分店的标签打印机。 品种丰富的选配件可供选择 <table><tr><th></th><th>标签剥离器</th><th>无线网络接口</th><th>蓝牙接口</th><th>锂离子充电电池</th><th>充电电池底座</th><th>触摸屏显示器</th><th>串口转换器 (RJ25转DB9M)</th></tr><tr><td>产品名称</td><td>PA-LP-001</td><td>PA-WI-001</td><td>PA-BI-001</td><td>PA-BT-4000LI</td><td>PA-BB-001</td><td>PA-TDU-001</td><td>PA-SCA-001</td></tr></table>",
-                "url": "https://www.brother.cn/project/pj_campaign/pc/Function.html",
-                "source": "web"
-            },
-            {
-                "title": "欢迎您访问兄弟(中国)商业有限公司",
-                "content": "将线穿过导线孔,将线绕过导线杆下侧。 将线沿顺时针方向缠绕张力旋钮(绕一次)。 安装梭芯 将绕满的梭芯放入旋梭中,如视频所示方式进行安装。 安装帽框支架 取下标准支架,将帽框支架穿过臂架,拧紧上面的2个螺丝,拧紧下面的2个螺丝。 更换机针 关闭机器电源,以视频所示方式卸下机针,并安装新机针。 维护 软件更新 按下自动穿线按钮时,打开主电源,插入存有更新包的U盘,选择USB介质按键,等待机器下载完毕即可。。 加油机 开机后触摸绣花机加油图标。打开旋梭盖,然后卸下内旋梭。在旋梭上加一滴缝纫机油。 官方哔哩哔哩",
-                "url": "https://www.brother.cn/minisite/hsm/hsmschool/P&H/video.html",
-                "source": "web"
-            },
-            {
-                "title": "Brother商用绣花机专业成就非凡",
-                "content": "一、产品使用与隐私保护; 本章节内容,将主要向您阐明:您在使用本产品及服务前,需要注意的相关事项,以及使用过程中, 我们将如何收集、保护、处理您的个人信息、隐私等必要数据,包括:  收集的数据和用途(包括产品型号、序列号、使用日志、文件格式等); 相关数据原则上存储在中华人民共和国境内; 如何使用 Cookie 及相关技术等保护、处理您的个人信息; 如需进一步了解“产品使用与隐私保护”的其他内容,请点击  我已了解并同意上述 <产品使用与隐私保护> 说明 二、数据保护与处理 本章节内容,将主要向您阐明:为了向您提供更为丰富、智能、高效的产品功能和用户体验, 我们将可能委托 Brother 关联公司、第三方服务供应商提供相关数据处理、保护等服务,包括:  数据处理关联方、第三方信息(包括企业名称、联系方式等); 数据处理的必要性(包括处理数据的名称、目的、方式等); 我们确保数据处理方采取安全措施切实保护数据; 如需进一步了解“数据保护与处理”的其他内容,请点击  我已了解并同意上述 <数据保护与处理> 说明 三、未成年人信息保护 本章节内容,将主要向您阐明:未成年人(特别是未满 14 周岁的未成年人)用户在使用本产品及服务前, 本人及其监护人需要知晓的个人信息收集、处理规则,包括:  未成年人使用本产品及服务,需征得其监护人同意; 如何收集、使用、管理未成年人个人信息; 如何联系我们,提出或反馈您的诉求、意见、建议等; 如需进一步了解“未成年人信息保护”的其他内容,请点击  我已了解并同意上述 <未成年人信息保护> 说明",
-                "url": "https://www.brother.cn/minisite/PRpromotion/video-vr.html",
-                "source": "web"
-            },
-            {
-                "title": "畅享绣 | 兄弟(中国)商业有限公司",
-                "content": "本章节内容,将主要向您阐明:为了向您提供更为丰富、智能、高效的产品功能和用户体验, 我们将可能委托 Brother 关联公司、第三方服务供应商提供相关数据处理、保护等服务,包括:  数据处理关联方、第三方信息(包括企业名称、联系方式等); 数据处理的必要性(包括处理数据的名称、目的、方式等); 我们确保数据处理方采取安全措施切实保护数据; 如需进一步了解“数据保护与处理”的其他内容,请点击  我已了解并同意上述 <数据保护与处理> 说明 本章节内容,将主要向您阐明:未成年人(特别是未满 14 周岁的未成年人)用户在使用本产品及服务前, 本人及其监护人需要知晓的个人信息收集、处理规则,包括:  未成年人使用本产品及服务,需征得其监护人同意; 如何收集、使用、管理未成年人个人信息; 如何联系我们,提出或反馈您的诉求、意见、建议等; 如需进一步了解“未成年人信息保护”的其他内容,请点击  我已了解并同意上述 <未成年人信息保护> 说明",
-                "url": "https://www.brother.cn/minisite/ph/cxx/",
-                "source": "web"
-            }
-        ]
-    }
-    result = node(init_state)
-    logger.info(json_format(result))
+        return ranked[:break_idx]

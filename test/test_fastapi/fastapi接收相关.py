@@ -118,7 +118,7 @@ class KeywordParams:
 # Depends是fastapi给我们的一个函数，它可以自动帮我们去做对象的实例化，并且自动帮我们去把对象的属性进行上下文解析初始化
 # 它的参数必须是一个能执行调用的数据类型，要么就是类要么就是函数，
 # 我们把我们的类当参数传递给Depends，它会帮我们自动实例化对象，切记给Depends的类或者函数不能自己调用,不能自己调用的意思是其他地方也不能调用吗？
-# 还是说传入的时候不能Depends(KeywordParams())？
+# 还是说传入的时候不能Depends(KeywordParams)
 
 @app.post("/testmax/{id}")
 def testmax(

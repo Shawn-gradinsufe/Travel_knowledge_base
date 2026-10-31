@@ -52,3 +52,23 @@ class McpConfig:
 class RerankConfig:
     rerank_base_url = os.getenv('RERANK_BASE_URL')
     rerank_api_key = os.getenv('RERANK_API_KEY')
+
+
+class TourismConfig:
+    """旅游知识库相关配置"""
+    # 原始语料根目录（下面按 景点攻略/线路推荐/酒店信息/美食推荐/交通指南 分目录放 md）
+    data_root = os.getenv('TOUR_DATA_ROOT')
+    # 切片集合
+    chunks_collection = os.getenv('TOUR_CHUNKS_COLLECTION', 'tourism_chunks')
+    # 实体集合（景点/酒店/餐厅/片区名）
+    entities_collection = os.getenv('TOUR_ENTITIES_COLLECTION', 'tourism_entities')
+    # 切分参数
+    chunk_size = int(os.getenv('TOUR_CHUNK_SIZE', '300'))
+    chunk_overlap = int(os.getenv('TOUR_CHUNK_OVERLAP', '50'))
+    # 小库直通阈值：过滤后候选少于此值，跳过 RRF 融合直接进 rerank
+    small_kb_threshold = int(os.getenv('TOUR_SMALL_KB_THRESHOLD', '20'))
+    # 联网结果在 rerank 后的惩罚系数（体现"本地优先"）
+    web_penalty = float(os.getenv('TOUR_WEB_PENALTY', '0.85'))
+    # 检索召回条数
+    search_limit = int(os.getenv('TOUR_SEARCH_LIMIT', '10'))
+

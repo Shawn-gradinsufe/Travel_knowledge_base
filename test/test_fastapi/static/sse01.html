@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <h1>SSE案例1</h1>
+    <button id="btn">发请求给后端制造邮件</button>
+
+
+    <script>
+        const btn = document.getElementById('btn')
+        btn.onclick = async function () {
+            const res = await fetch('/sse01')
+        }
+
+
+
+    </script>
+</body>
+</html>

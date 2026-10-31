@@ -3,7 +3,7 @@
 import time
 from pymongo import MongoClient
 
-from atguigu.import_process.config.config import MongoConfig
+from atguigu.config.config import MongoConfig
 
 mongo_client=None
 def get_mongo_client():
@@ -41,11 +41,16 @@ def clear_history(session_id):
     mongo_tool.delete_many({"session_id":session_id})
 
 
-# get_recent_messages 根据session_id获取最近的n条消息
+# get_recent_messages 根据session_id获取最近的n条消息（按时间正序返回）
 def get_recent_messages(session_id,n=10):
     mongo_tool = get_mongo_tool()
-    result = mongo_tool.find({"session_id":session_id}).sort({"ts":-1}).limit(n)
-    return list(result) # 必须强转,传入游标对象,才能获取到字典的列表数据
+    # 先按时间倒序取最近 n 条
+    result = mongo_tool.find({"session_id":session_id}).sort("ts",-1).limit(n)
+    rows = list(result)
+    # 再翻转成正序：拼历史对话时，大模型需要的是"从旧到新"，
+    # 原来的实现直接返回倒序，喂给模型的上下文是反的。
+    rows.reverse()
+    return rows
 
 
 # 增改一体，一个函数可以增也可以改，增和改在这里都是全量
@@ -87,6 +92,27 @@ def update_history_item_names(ids,item_names,rewritten_query):
             "rewritten_query":rewritten_query,
         }
     })
+
+
+def update_message_meta(message_id, item_names=None, rewritten_query=None):
+    """
+    只更新指定的一条消息。
+
+    原来的 update_history_item_names 会把最近 N 条历史**全部**覆写成当前轮次的
+    item_names / rewritten_query，导致历史记录被污染（翻旧对话时看到的全是新问题的改写）。
+    这里按 _id 精确更新，只动刚写入的那条用户消息。
+    """
+    if not message_id:
+        return
+    mongo_tool = get_mongo_tool()
+    payload = {}
+    if item_names is not None:
+        payload["item_names"] = item_names
+    if rewritten_query is not None:
+        payload["rewritten_query"] = rewritten_query
+    if not payload:
+        return
+    mongo_tool.update_one({"_id": message_id}, {"$set": payload})
 
 
 

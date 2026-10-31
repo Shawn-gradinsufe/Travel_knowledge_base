@@ -5,7 +5,7 @@ import json
 
 from minio import Minio
 
-from atguigu.import_process.config.config import MinioConfig
+from atguigu.config.config import MinioConfig
 
 minio_client=None
 

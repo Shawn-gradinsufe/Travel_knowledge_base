@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅游知识库 · 流程图与节点说明</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 60px;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f7f8fa; color: #1f2933; line-height: 1.7;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  header { padding: 44px 0 28px; border-bottom: 1px solid #e4e7eb; margin-bottom: 34px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 10px; letter-spacing: -.3px; }
+  .sub { color: #616e7c; font-size: 14px; }
+  .facts { display: flex; gap: 26px; margin-top: 20px; flex-wrap: wrap; }
+  .fact { font-size: 13px; color: #616e7c; }
+  .fact b { display: block; font-size: 20px; color: #1f2933; font-weight: 600; }
+  h2 {
+    font-size: 18px; font-weight: 600; margin: 46px 0 6px;
+    padding-left: 11px; border-left: 3px solid #185fa5;
+  }
+  h2.q { border-left-color: #0f6e56; }
+  .hint { font-size: 13px; color: #7b8794; margin: 0 0 18px; padding-left: 14px; }
+  .panel { background: #fff; border: 1px solid #e4e7eb; border-radius: 12px; padding: 18px 20px; margin-bottom: 22px; }
+  .panel svg { display: block; width: 100%; height: auto; }
+
+  .card {
+    background: #fff; border: 1px solid #e4e7eb; border-radius: 12px;
+    padding: 20px 22px; margin-bottom: 16px; border-left: 3px solid #185fa5;
+  }
+  .card.q { border-left-color: #0f6e56; }
+  .card.off { border-left-color: #b4b2a9; opacity: .92; }
+  .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .idx {
+    font-size: 12px; font-weight: 600; color: #fff; background: #185fa5;
+    width: 22px; height: 22px; border-radius: 6px; display: inline-flex;
+    align-items: center; justify-content: center; flex: 0 0 auto;
+  }
+  .card.q .idx { background: #0f6e56; }
+  .card.off .idx { background: #b4b2a9; }
+  .card h3 { font-size: 16px; font-weight: 600; margin: 0; }
+  code, .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .node-id { font-size: 12.5px; color: #616e7c; background: #f1f3f5; padding: 1px 7px; border-radius: 5px; }
+  .file { font-size: 12.5px; color: #7b8794; margin: 2px 0 14px; }
+  .file span { color: #185fa5; }
+  .card.q .file span { color: #0f6e56; }
+  .io { display: grid; grid-template-columns: 62px 1fr; gap: 4px 10px; font-size: 13px; margin-bottom: 14px; }
+  .io dt { color: #7b8794; }
+  .io dd { margin: 0; }
+  .io .k {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    background: #eef1f4; padding: 1px 5px; border-radius: 4px; margin-right: 4px;
+    display: inline-block; margin-bottom: 2px;
+  }
+  ul.do { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; }
+  ul.do li { margin-bottom: 5px; }
+  .note {
+    font-size: 13px; background: #faf7ee; border: 1px solid #efe6cd;
+    border-radius: 8px; padding: 10px 13px; color: #6b5b2e;
+  }
+  .note.warn { background: #fdf2f2; border-color: #f3d2d2; color: #8a3b3b; }
+  .note b { font-weight: 600; }
+  .tag {
+    font-size: 11px; padding: 1px 7px; border-radius: 20px;
+    border: 1px solid #cbd2d9; color: #616e7c; font-weight: 500;
+  }
+  .tag.new { border-color: #b5d4f4; background: #e6f1fb; color: #0c447c; }
+  .tag.mod { border-color: #f0d9a8; background: #faeeda; color: #854f0b; }
+  .tag.keep { border-color: #d3d1c7; background: #f1efe8; color: #444441; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #eceff1; vertical-align: top; }
+  th { background: #f7f8fa; font-weight: 600; color: #3e4c59; font-size: 12.5px; }
+  td .k { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #185fa5; }
+  .legend { display: flex; gap: 20px; font-size: 12.5px; color: #616e7c; margin-top: 14px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>旅游知识库 · 流程图与节点说明</h1>
+  <div class="sub">基于原「掌柜智库（商品手册问答）」项目改造。这份文档按节点逐个说明：<b>它读什么、写什么、做了什么</b>，方便对着源码核对。</div>
+  <div class="facts">
+    <div class="fact"><b>30</b>篇语料（6 目的地 × 5 类）</div>
+    <div class="fact"><b>853</b>条切片</div>
+    <div class="fact"><b>179</b>个实体</div>
+    <div class="fact"><b>14</b>个节点（导入 7 + 查询 7）</div>
+  </div>
+</header>
+
+<h2>一、导入链</h2>
+<p class="hint">入口 <code>atguigu/import_process/main_graph.py</code> · 状态 <code>ImportGraphState</code> · 单文件一次运行，批量由 <code>run_batch()</code> 循环调用</p>
+<div class="panel">
+<svg viewBox="0 0 1120 212" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#8b95a1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <g>
+    <rect x="12" y="44" width="136" height="84" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width=".5"/>
+    <text x="80" y="66" font-size="13" font-weight="600" fill="#0c447c" text-anchor="middle">入口分流</text>
+    <text x="80" y="85" font-size="9" fill="#185fa5" text-anchor="middle" font-family="monospace">node_entry</text>
+    <text x="80" y="106" font-size="11" fill="#185fa5" text-anchor="middle">校验 + 分流</text>
+  </g>
+  <g>
+    <rect x="172" y="44" width="136" height="84" rx="10" fill="#f1efe8" stroke="#b4b2a9" stroke-width=".5" stroke-dasharray="3 2"/>
+    <text x="240" y="66" font-size="13" font-weight="600" fill="#444441" text-anchor="middle">PDF 转 MD</text>
+    <text x="240" y="85" font-size="9" fill="#5f5e5a" text-anchor="middle" font-family="monospace">node_pdf_to_md</text>
+    <text x="240" y="106" font-size="11" fill="#5f5e5a" text-anchor="middle">仅 pdf 输入</text>
+  </g>
+  <g>
+    <rect x="332" y="44" width="136" height="84" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width=".5"/>
+    <text x="400" y="66" font-size="13" font-weight="600" fill="#0c447c" text-anchor="middle">元数据解析</text>
+    <text x="400" y="85" font-size="9" fill="#185fa5" text-anchor="middle" font-family="monospace">node_metadata_parse</text>
+    <text x="400" y="106" font-size="11" fill="#185fa5" text-anchor="middle">正则读元数据</text>
+  </g>
+  <g>
+    <rect x="492" y="44" width="136" height="84" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width=".5"/>
+    <text x="560" y="66" font-size="13" font-weight="600" fill="#0c447c" text-anchor="middle">文档切分</text>
+    <text x="560" y="85" font-size="9" fill="#185fa5" text-anchor="middle" font-family="monospace">node_document_split</text>
+    <text x="560" y="106" font-size="11" fill="#185fa5" text-anchor="middle">标题栈 + 细切</text>
+  </g>
+  <g>
+    <rect x="652" y="44" width="136" height="84" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width=".5"/>
+    <text x="720" y="66" font-size="13" font-weight="600" fill="#0c447c" text-anchor="middle">实体抽取</text>
+    <text x="720" y="85" font-size="9" fill="#185fa5" text-anchor="middle" font-family="monospace">node_entity_extract</text>
+    <text x="720" y="106" font-size="11" fill="#185fa5" text-anchor="middle">抽景点实体</text>
+  </g>
+  <g>
+    <rect x="812" y="44" width="136" height="84" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width=".5"/>
+    <text x="880" y="66" font-size="13" font-weight="600" fill="#0c447c" text-anchor="middle">向量化</text>
+    <text x="880" y="85" font-size="9" fill="#185fa5" text-anchor="middle" font-family="monospace">node_bge_embedding</text>
+    <text x="880" y="106" font-size="11" fill="#185fa5" text-anchor="middle">双向量编码</text>
+  </g>
+  <g>
+    <rect x="972" y="44" width="136" height="84" rx="10" fill="#e6f1fb" stroke="#185fa5" stroke-width=".5"/>
+    <text x="1040" y="66" font-size="13" font-weight="600" fill="#0c447c" text-anchor="middle">导入 Milvus</text>
+    <text x="1040" y="85" font-size="9" fill="#185fa5" text-anchor="middle" font-family="monospace">node_import_milvus</text>
+    <text x="1040" y="106" font-size="11" fill="#185fa5" text-anchor="middle">幂等覆盖入库</text>
+  </g>
+
+  <path d="M148 86 L168 86" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M308 86 L328 86" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M468 86 L488 86" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M628 86 L648 86" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M788 86 L808 86" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a1)"/>
+  <path d="M948 86 L968 86" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a1)"/>
+
+  <path d="M80 128 C 80 178, 400 178, 400 132" fill="none" stroke="#185fa5" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a1)"/>
+  <text x="240" y="186" font-size="11" fill="#185fa5" text-anchor="middle">.md 直通（跳过 PDF 节点）</text>
+  <text x="240" y="32" font-size="11" fill="#7b8794" text-anchor="middle">pdf 输入时走这条</text>
+</svg>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="idx">1</span><h3>入口分流</h3>
+    <span class="node-id">node_entry</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_entry.py</span> : 9</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">local_file_path</span></dd>
+    <dt>写</dt><dd><span class="k">file_title</span><span class="k">source_file</span><span class="k">source_path</span><span class="k">md_path</span><span class="k">is_md_read_enabled</span>（pdf 则写 <span class="k">pdf_path</span><span class="k">is_pdf_read_enabled</span>）</dd>
+  </dl>
+  <ul class="do">
+    <li>校验文件存在、后缀只允许 <code>.md</code> / <code>.pdf</code></li>
+    <li>计算 <b>来源相对路径</b>：用 <code>Path.relative_to(TOUR_DATA_ROOT)</code>，产出 <code>景点攻略/三亚景点推荐.md</code> 这种可读路径（这个值后面会变成 <code>doc_id</code> 的依据）</li>
+    <li>按后缀设置分流标记，由 <code>after_entry_router()</code> 决定下一跳</li>
+  </ul>
+  <div class="note">相对原项目：多了 <code>source_path</code> 的计算，<b>去掉了「不支持的类型直接抛异常」以外的所有硬编码</b>。</div>
+</div>
+
+<div class="card off">
+  <div class="card-head">
+    <span class="idx">2</span><h3>PDF 转 MD</h3>
+    <span class="node-id">node_pdf_to_md</span><span class="tag keep">保留未改</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_pdf_to_md.py</span> : 12</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">pdf_path</span><span class="k">local_dir</span></dd>
+    <dt>写</dt><dd><span class="k">md_path</span><span class="k">md_content</span></dd>
+  </dl>
+  <ul class="do">
+    <li>调 MinerU 的 v4 API：先申请上传地址 → PUT 上传 → 轮询 batch 结果 → 下载 zip → 解压 → <code>full.md</code> 改名为 <code>文件名.md</code></li>
+    <li>解压前做幂等 <code>rmtree</code>，避免新旧解析结果混在一起</li>
+  </ul>
+  <div class="note warn"><b>旅游语料全是 .md，这条分支实际不执行。</b>保留它是为了以后接 PDF 版攻略。另外这个节点里有个<b>原有 bug 没修</b>：<code>get_zip_url()</code> 的 <code>start_time</code> 写在 while 循环内部，120 秒超时永远不会触发（会无限轮询）。要修的话告诉我。</div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="idx">3</span><h3>元数据解析</h3>
+    <span class="node-id">node_metadata_parse</span><span class="tag new">新增</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_metadata_parse.py</span> : 27</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">md_path</span><span class="k">file_title</span><span class="k">source_path</span></dd>
+    <dt>写</dt><dd><span class="k">doc_id</span><span class="k">doc_title</span><span class="k">content_type</span><span class="k">city_tags</span><span class="k">city_display</span><span class="k">topic</span></dd>
+  </dl>
+  <ul class="do">
+    <li>正则抓 <code>## 元数据</code> 块（<code>META_BLOCK_PATTERN</code>）和 H1 主标题</li>
+    <li><b>字段名归一</b>：<code>城市</code> 与 <code>目的地</code> 都当城市；<code>景点名称/线路名称/住宿名称/文档名称</code> 都当名称</li>
+    <li><b>多值拆分</b>：<code>昆明、大理、丽江</code> → <code>["昆明","大理","丽江"]</code>；<code>云南多城市</code> 按别名词典展开成三个城市</li>
+    <li><b>枚举归一</b>：数据里的 <code>美食介绍</code> → 需求口径的 <code>美食推荐</code>；内容类型缺失时用一级目录名兜底</li>
+    <li><b>幂等键</b>：<code>doc_id = sha1(source_path)[:16]</code></li>
+  </ul>
+  <div class="note">这一层<b>不调大模型</b>，纯正则 + 词典。30 个文档 0 次 LLM 调用，确定性 100%，出错能直接定位到哪条规则没匹配上。</div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="idx">4</span><h3>文档切分</h3>
+    <span class="node-id">node_document_split</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_document_split.py</span> : 18</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">md_path</span> + 元数据节点的全部产出</dd>
+    <dt>写</dt><dd><span class="k">chunks</span>（每条带 <code>title / breadcrumb / heading_level / content / part</code> + 文档级元数据）</dd>
+  </dl>
+  <ul class="do">
+    <li>维护<b>标题栈</b>，为每个章节生成面包屑：<code>核心景点推荐 &gt; 亚龙湾</code>——引用信息靠它精确到章节</li>
+    <li>代码围栏状态机（<code>is_block</code> + <code>marker</code>），避免把 <code>```</code> 里的 <code># 注释</code> 误判成标题</li>
+    <li>跳过 <code>## 元数据</code> 段（<code>SKIP_TITLES</code>）——它是元信息，混进向量库会污染检索</li>
+    <li>细切：<code>RecursiveCharacterTextSplitter(300 / 50)</code>；短于 300 字或含 <code>&lt;table</code> 的段整块保留</li>
+  </ul>
+  <div class="note">原项目这里只产出 <code>title/content/part</code>，标题信息是拍平的。现在每条切片都带完整元数据，后面所有过滤和引用都依赖它。</div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="idx">5</span><h3>实体抽取</h3>
+    <span class="node-id">node_entity_extract</span><span class="tag new">新增</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_entity_extract.py</span> : 26</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">chunks</span><span class="k">doc_id</span><span class="k">city_tags</span><span class="k">content_type</span></dd>
+    <dt>写</dt><dd><span class="k">entity_names</span>（列表）+ 回填每个 chunk 的 <code>entity_name / entity_type</code></dd>
+  </dl>
+  <ul class="do">
+    <li><b>规则先筛</b>：从章节标题里挑候选，用 <code>NON_ENTITY_MARKERS</code> 排除「第一层核心景点」「东线和西线最好分天安排」这类分析性标题</li>
+    <li><b>大模型精修</b>：让模型只从候选里挑真实体并标类型（景点/酒店/餐厅/美食/片区）；模型编的名字会被丢弃（只保留出现在候选里的）</li>
+    <li><b>回填</b>：标题本身是实体的直接标；否则从正文里找第一个出现的实体</li>
+    <li><b>落库</b>：写 <code>tourism_entities</code>，按 <code>doc_id</code> 先删后插</li>
+  </ul>
+  <div class="note">实测效果：<code>三亚景点推荐.md</code> 共 11 个二级标题 + 43 个三级标题，7 个真实体（亚龙湾 / 蜈支洲岛 / 天涯海角 / 南山文化旅游区 / 海棠湾 / 鹿回头 / 西岛）全部命中，其余分析性小标题全部排除。<b>大模型不可用时会退回规则结果</b>，不会中断导入。</div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="idx">6</span><h3>向量化</h3>
+    <span class="node-id">node_bge_embedding</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_bge_embedding.py</span> : 11</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">chunks</span></dd>
+    <dt>写</dt><dd>每个 chunk 的 <code>dense_vector</code>（1024 维）+ <code>sparse_vector</code></dd>
+  </dl>
+  <ul class="do">
+    <li>编码文本 = <code>城市｜内容类型｜章节路径｜实体名｜标题\n正文</code>（<code>build_embedding_text()</code>）</li>
+    <li>批次大小从 3 提到 8（<code>BATCH_SIZE</code>）</li>
+  </ul>
+  <div class="note">为什么要加前缀：用户问「三亚有什么好玩的」时，正文里可能一次都没出现「三亚」二字（都在标题和元数据里），加了城市前缀才能让这类问题召回得到。</div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="idx">7</span><h3>导入 Milvus</h3>
+    <span class="node-id">node_import_milvus</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_import_milvus.py</span> : 18</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">chunks</span><span class="k">doc_id</span></dd>
+    <dt>写</dt><dd><span class="k">chunks</span>（回填 Milvus 主键 <code>id</code>）</dd>
+  </dl>
+  <ul class="do">
+    <li>建表：19 个字段 + dense/sparse 两个索引（<code>IVF_FLAT/COSINE</code>、<code>SPARSE_INVERTED_INDEX/IP</code>）</li>
+    <li><code>to_row()</code> 只保留 <code>STORED_FIELDS</code> 里的字段，中间态字段不进库</li>
+    <li>城市存两个字段：<code>city</code>（主城市，精确匹配）+ <code>city_tags</code>（逗号拼接，模糊匹配）</li>
+    <li>幂等：按 <code>doc_id</code> 先删后插</li>
+  </ul>
+  <div class="note">没用 Milvus 的 <code>ARRAY</code> 类型，是为了兼容 2.4 以下版本；<code>city_tags like "%大理%"</code> 语义上等价于数组包含判断。</div>
+</div>
+
+<h2 class="q">二、查询链</h2>
+<p class="hint">入口 <code>atguigu/query_process/main_graph.py</code> · 状态 <code>QueryGraphState</code> · 中间三个节点<b>并行执行</b>，汇合到 RRF</p>
+<div class="panel">
+<svg viewBox="0 0 1120 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#8b95a1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <g>
+    <rect x="12" y="112" width="150" height="84" rx="10" fill="#e1f5ee" stroke="#0f6e56" stroke-width=".5"/>
+    <text x="87" y="134" font-size="13" font-weight="600" fill="#085041" text-anchor="middle">意图解析</text>
+    <text x="87" y="153" font-size="9" fill="#0f6e56" text-anchor="middle" font-family="monospace">node_query_analyze</text>
+    <text x="87" y="174" font-size="11" fill="#0f6e56" text-anchor="middle">城市+类型+实体</text>
+  </g>
+
+  <g>
+    <rect x="212" y="64" width="190" height="52" rx="9" fill="#e1f5ee" stroke="#0f6e56" stroke-width=".5"/>
+    <text x="307" y="84" font-size="12.5" font-weight="600" fill="#085041" text-anchor="middle">HyDE 检索</text>
+    <text x="307" y="102" font-size="11" fill="#0f6e56" text-anchor="middle">先生成假设答案再召回</text>
+  </g>
+  <g>
+    <rect x="212" y="128" width="190" height="52" rx="9" fill="#e1f5ee" stroke="#0f6e56" stroke-width=".5"/>
+    <text x="307" y="148" font-size="12.5" font-weight="600" fill="#085041" text-anchor="middle">普通混合检索</text>
+    <text x="307" y="166" font-size="11" fill="#0f6e56" text-anchor="middle">改写问题 dense+sparse</text>
+  </g>
+  <g>
+    <rect x="212" y="192" width="190" height="52" rx="9" fill="#f1efe8" stroke="#b4b2a9" stroke-width=".5"/>
+    <text x="307" y="212" font-size="12.5" font-weight="600" fill="#444441" text-anchor="middle">联网搜索</text>
+    <text x="307" y="230" font-size="11" fill="#5f5e5a" text-anchor="middle">MCP 补位（可失败）</text>
+  </g>
+
+  <g>
+    <rect x="452" y="112" width="140" height="84" rx="10" fill="#e1f5ee" stroke="#0f6e56" stroke-width=".5"/>
+    <text x="522" y="134" font-size="13" font-weight="600" fill="#085041" text-anchor="middle">RRF 融合</text>
+    <text x="522" y="153" font-size="9" fill="#0f6e56" text-anchor="middle" font-family="monospace">node_rrf</text>
+    <text x="522" y="174" font-size="11" fill="#0f6e56" text-anchor="middle">小库直通</text>
+  </g>
+  <g>
+    <rect x="632" y="112" width="140" height="84" rx="10" fill="#e1f5ee" stroke="#0f6e56" stroke-width=".5"/>
+    <text x="702" y="134" font-size="13" font-weight="600" fill="#085041" text-anchor="middle">重排序</text>
+    <text x="702" y="153" font-size="9" fill="#0f6e56" text-anchor="middle" font-family="monospace">node_rerank</text>
+    <text x="702" y="174" font-size="11" fill="#0f6e56" text-anchor="middle">断崖截断</text>
+  </g>
+  <g>
+    <rect x="812" y="112" width="160" height="84" rx="10" fill="#e1f5ee" stroke="#0f6e56" stroke-width=".5"/>
+    <text x="892" y="134" font-size="13" font-weight="600" fill="#085041" text-anchor="middle">答案生成</text>
+    <text x="892" y="153" font-size="9" fill="#0f6e56" text-anchor="middle" font-family="monospace">node_answer_output</text>
+    <text x="892" y="174" font-size="11" fill="#0f6e56" text-anchor="middle">引用 + 忠实度校验</text>
+  </g>
+
+  <path d="M162 154 C 190 154, 185 90, 208 90" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M162 154 L208 154" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M162 154 C 190 154, 185 218, 208 218" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+
+  <path d="M402 90 C 428 90, 425 154, 448 154" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M402 154 L448 154" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M402 218 C 428 218, 425 154, 448 154" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+
+  <path d="M592 154 L628 154" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M772 154 L808 154" fill="none" stroke="#8b95a1" stroke-width="1.5" marker-end="url(#a2)"/>
+
+  <text x="990" y="140" font-size="11" fill="#7b8794">final 事件带</text>
+  <text x="990" y="158" font-size="11" fill="#7b8794">citations +</text>
+  <text x="990" y="176" font-size="11" fill="#7b8794">removed_terms</text>
+
+  <path d="M87 196 C 87 268, 522 268, 522 200" fill="none" stroke="#b45309" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a2)"/>
+  <text x="300" y="284" font-size="11" fill="#b45309" text-anchor="middle">意图解析已给出答案（如参数缺失）时直接跳到答案生成</text>
+</svg>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">1</span><h3>意图解析</h3>
+    <span class="node-id">node_query_analyze</span><span class="tag mod">改造（替代商品名确认）</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_query_analyze.py</span> : 32</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">original_query</span><span class="k">session_id</span></dd>
+    <dt>写</dt><dd><span class="k">cities</span><span class="k">city_display</span><span class="k">content_types</span><span class="k">entities</span><span class="k">rewritten_query</span><span class="k">is_cross_city</span><span class="k">is_fact_query</span><span class="k">history</span><span class="k">message_id</span></dd>
+  </dl>
+  <ul class="do">
+    <li><b>城市</b>：词典匹配优先（<code>match_cities</code>），大模型只在词典没命中时补位</li>
+    <li><b>内容类型</b>：关键词映射（<code>match_content_types</code>），可能返回多个，也可能为空</li>
+    <li><b>实体</b>：先让大模型提候选，再拿候选去 <code>tourism_entities</code> 做向量校验，<code>score ≥ 0.78</code> 才算，<b>最多留 2 个</b>（<code>MAX_ENTITIES</code>）</li>
+    <li><b>跨城判断</b>：城市为空就设 <code>is_cross_city=True</code>，<b>不反问</b>，走全库检索</li>
+    <li><b>事实型判断</b>：命中「门票/开放时间/电话」等词 → <code>is_fact_query=True</code>，影响后面联网结果是否放行</li>
+  </ul>
+  <div class="note">顺手修了原项目一个 bug：历史记录原来用 <code>update_many</code> 把最近 10 条<b>全部</b>覆写成当前轮次的实体和改写问题；现在 <code>update_message_meta()</code> 只按 <code>_id</code> 更新刚存的那条。</div>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">2</span><h3>HyDE 检索</h3>
+    <span class="node-id">node_search_embedding_hyde</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_search_embedding_hyde.py</span> : 12</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">rewritten_query</span><span class="k">cities</span><span class="k">content_types</span><span class="k">entities</span></dd>
+    <dt>写</dt><dd><span class="k">hyde_embedding_chunks</span></dd>
+  </dl>
+  <ul class="do">
+    <li>让模型先写一段「假设性答案」，用这段答案的向量去检索（问法和答法都参与匹配）</li>
+    <li>走同一套软过滤（<code>search_with_soft_filter</code>），dense:sparse = 0.7 : 0.3</li>
+    <li>大模型不可用时返回空列表，<b>不中断链路</b>，RRF 会跳过这一路</li>
+  </ul>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">3</span><h3>普通混合检索</h3>
+    <span class="node-id">node_search_embedding</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_search_embedding.py</span> : 10</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">rewritten_query</span><span class="k">cities</span><span class="k">content_types</span><span class="k">entities</span></dd>
+    <dt>写</dt><dd><span class="k">embedding_chunks</span><span class="k">filter_used</span></dd>
+  </dl>
+  <ul class="do">
+    <li>用改写后的问题做 dense + sparse 双路检索，dense:sparse = 0.6 : 0.4</li>
+    <li><b>软过滤</b>：按 <code>full → city_type → city_entity → city → none</code> 逐级放宽，命中数 ≥ 3 就停</li>
+    <li><code>filter_used</code> 记录实际生效的过滤级别，排查时能看出是不是过滤太严被放宽了</li>
+  </ul>
+  <div class="note">原项目这里是 <code>item_name in [...]</code> 单一条件、命中 0 条也不放宽。现在过滤条件变成三个维度组合，并且<b>不会因为判断错一个维度就查不到东西</b>。</div>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">4</span><h3>联网搜索</h3>
+    <span class="node-id">node_web_search_mcp</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_web_search_mcp.py</span> : 12</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">rewritten_query</span></dd>
+    <dt>写</dt><dd><span class="k">web_search_docs</span></dd>
+  </dl>
+  <ul class="do">
+    <li>通过 MCP（<code>bailian_web_search</code>）调阿里云百炼联网搜索，取 title / snippet / url</li>
+    <li>整段包了 try/except：<b>联网失败返回空列表</b>，不拖垮问答</li>
+  </ul>
+  <div class="note">这个节点本身是「补位」角色，真正决定它结果要不要用的是下一个环节的 <code>gate_web()</code>。</div>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">5</span><h3>RRF 融合</h3>
+    <span class="node-id">node_rrf</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_rrf.py</span> : 14</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">embedding_chunks</span><span class="k">hyde_embedding_chunks</span></dd>
+    <dt>写</dt><dd><span class="k">rrf_chunks</span><span class="k">small_kb</span></dd>
+  </dl>
+  <ul class="do">
+    <li><b>小库直通</b>：两路候选合计 &lt; 20 条时，<b>跳过 RRF 加权</b>，直接按原始分数合并去重</li>
+    <li>否则走标准 RRF：<code>score = weight / (60 + rank)</code>，按 chunk id 去重累加，取前 10</li>
+  </ul>
+  <div class="note">这是刻意的降级设计：语料只有 853 条切片，过滤后往往不到 20 条候选，多路加权融合的收益很小，反而会把本来排第一的精确命中稀释掉。<b>重武器要用在候选多、噪声大的场景。</b></div>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">6</span><h3>重排序</h3>
+    <span class="node-id">node_rerank</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_rerank.py</span> : 16</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">rrf_chunks</span><span class="k">web_search_docs</span><span class="k">is_fact_query</span><span class="k">rewritten_query</span></dd>
+    <dt>写</dt><dd><span class="k">reranked_docs</span></dd>
+  </dl>
+  <ul class="do">
+    <li>合并本地 + 联网结果，字段归一化（标题拼成 <code>面包屑 &gt; 章节</code>）</li>
+    <li><code>qwen3.7-text-rerank</code> 精确打分；接口挂了退回按召回分数排序</li>
+    <li><b>本地优先</b>：非事实型问题，联网结果分数 × 0.85（<code>TOUR_WEB_PENALTY</code>）</li>
+    <li><b>联网准入</b>（<code>gate_web</code>）：本地 ≥ 3 条且最高分 ≥ 0.55 时，<b>直接丢弃联网结果</b>；事实型问题或无本地覆盖时才放行</li>
+    <li><b>断崖截断</b>：相邻分差相对 &gt; 25% 或绝对 &gt; 0.20 就切，下限 3 条、上限 10 条</li>
+  </ul>
+  <div class="note warn">这道「联网准入」是评测后补的。没有它的时候，问「大理怎么玩三天」这种本地完全能答的问题，也会混进 8 个 SEO 页，模型把网络上的门票价格写进了本地引用。</div>
+</div>
+
+<div class="card q">
+  <div class="card-head">
+    <span class="idx">7</span><h3>答案生成</h3>
+    <span class="node-id">node_answer_output</span><span class="tag mod">改造</span>
+  </div>
+  <div class="file"><span>atguigu/query_process/nodes/node_answer_output.py</span> : 21</div>
+  <dl class="io">
+    <dt>读</dt><dd><span class="k">reranked_docs</span><span class="k">history</span><span class="k">entities</span><span class="k">is_cross_city</span><span class="k">is_fact_query</span></dd>
+    <dt>写</dt><dd><span class="k">answer</span><span class="k">citations</span><span class="k">removed_terms</span></dd>
+  </dl>
+  <ul class="do">
+    <li>把参考内容编成带编号的上下文：<code>[切片:1][来源:local][城市:三亚][类型:酒店信息][章节:...][文件:...]</code></li>
+    <li>流式生成，逐字推 <code>delta</code> 事件</li>
+    <li><b>忠实度校验</b>：生成后把答案里的地名回查整个语料库，发现语料里没有的（如「凤阳邑村」），带禁用清单让模型<b>重写一次</b></li>
+    <li><b>参考来源区块由系统追加</b>，不让模型自己写——避免编号和内容对不上</li>
+    <li><code>final</code> 事件带校验后的完整答案，前端用它覆盖已流式显示的内容</li>
+  </ul>
+  <div class="note">没有检索结果时给明确兜底话术，不让模型硬答。保存历史时同时记录 <code>rewritten_query</code> 和 <code>entities</code>，方便回看。</div>
+</div>
+
+<h2>三、节点与状态字段对照</h2>
+<p class="hint">对着看的时候，重点核对「上一个节点写的键，是不是下一个节点读的键」</p>
+<table>
+  <thead>
+    <tr><th style="width:210px">节点</th><th style="width:46%">写入 state</th><th>读取 state</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><b>导入</b> · node_entry</td><td><span class="k">file_title source_file source_path md_path pdf_path is_md_read_enabled is_pdf_read_enabled</span></td><td><span class="k">local_file_path</span></td></tr>
+    <tr><td>node_metadata_parse</td><td><span class="k">doc_id doc_title content_type city_tags city_display topic</span></td><td><span class="k">md_path file_title source_path</span></td></tr>
+    <tr><td>node_document_split</td><td><span class="k">chunks</span></td><td><span class="k">md_path</span> + 元数据全部字段</td></tr>
+    <tr><td>node_entity_extract</td><td><span class="k">chunks entity_names</span></td><td><span class="k">chunks doc_id city_tags content_type</span></td></tr>
+    <tr><td>node_bge_embedding</td><td><span class="k">chunks</span>（补向量）</td><td><span class="k">chunks</span></td></tr>
+    <tr><td>node_import_milvus</td><td><span class="k">chunks</span>（补 id）</td><td><span class="k">chunks doc_id</span></td></tr>
+    <tr><td><b>查询</b> · node_query_analyze</td><td><span class="k">cities city_display content_types entities rewritten_query is_cross_city is_fact_query history message_id</span></td><td><span class="k">original_query session_id</span></td></tr>
+    <tr><td>node_search_embedding_hyde</td><td><span class="k">hyde_embedding_chunks</span></td><td><span class="k">rewritten_query cities content_types entities</span></td></tr>
+    <tr><td>node_search_embedding</td><td><span class="k">embedding_chunks filter_used</span></td><td>同上</td></tr>
+    <tr><td>node_web_search_mcp</td><td><span class="k">web_search_docs</span></td><td><span class="k">rewritten_query</span></td></tr>
+    <tr><td>node_rrf</td><td><span class="k">rrf_chunks small_kb</span></td><td><span class="k">embedding_chunks hyde_embedding_chunks</span></td></tr>
+    <tr><td>node_rerank</td><td><span class="k">reranked_docs</span></td><td><span class="k">rrf_chunks web_search_docs is_fact_query</span></td></tr>
+    <tr><td>node_answer_output</td><td><span class="k">answer citations removed_terms</span></td><td><span class="k">reranked_docs history entities is_cross_city is_fact_query</span></td></tr>
+  </tbody>
+</table>
+
+<h2>四、没有挂到图上的节点</h2>
+<div class="card off">
+  <div class="card-head">
+    <span class="idx">—</span><h3>Markdown 图片处理</h3>
+    <span class="node-id">node_md_img</span><span class="tag keep">保留但未挂载</span>
+  </div>
+  <div class="file"><span>atguigu/import_process/nodes/node_md_img.py</span> : 20</div>
+  <ul class="do">
+    <li>功能：正则定位 md 里的图片、截取前后 300 字上下文、用 VL 模型生成摘要、上传 MinIO 后回写成在线 URL</li>
+    <li>旅游语料 <b>0 张图片</b>（30 个文件全文搜不到 <code>![</code>），挂上去只会空转，所以没接进图</li>
+    <li>文件保留着，以后语料加了图文攻略可以直接接回来（接在 <code>node_metadata_parse</code> 之前）</li>
+  </ul>
+</div>
+
+<div class="card off">
+  <div class="card-head">
+    <span class="idx">—</span><h3>被替换的三个旧节点</h3>
+    <span class="node-id">atguigu/_legacy/</span><span class="tag keep">已移出</span>
+  </div>
+  <div class="file"><span>atguigu/_legacy/node_item_name_recognition.py · node_document_spilt.py · node_item_name_confirm.py</span></div>
+  <ul class="do">
+    <li><code>node_item_name_recognition</code> → 被 <code>node_entity_extract</code> 替代（商品名 → 多实体）</li>
+    <li><code>node_document_spilt</code>（文件名拼错的那个）→ 被 <code>node_document_split</code> 替代（增加了面包屑和元数据回填）</li>
+    <li><code>node_item_name_confirm</code> → 被 <code>node_query_analyze</code> 替代（商品名确认 → 城市/类型/实体解析）</li>
+  </ul>
+  <div class="note">这三个文件里有你之前未提交的改动，我没直接删，用 <code>git mv</code> 移到了 <code>_legacy/</code>。确认不要了可以删掉整个目录。</div>
+</div>
+
+</div>
+</body>
+</html>

@@ -30,13 +30,13 @@ class NodeBase(ABC):
         try:
             task_id = state.get("task_id")
             logger.info(f"{self.name} 开始执行...")
-            add_running_task(task_id,self.name)
-            put_data(task_id,event="progress",data=get_task_info(task_id))
+            add_running_task(task_id, self.name)
+            put_data(task_id, event="progress", data=get_task_info(task_id))
 
             result = self.process(state)
+            add_done_task(task_id, self.name)
+            put_data(task_id, event="progress", data=get_task_info(task_id))
 
-            add_done_task(task_id,self.name)
-            put_data(task_id,event="progress",data=get_task_info(task_id))
 
             logger.info(f"{self.name} 结束执行...")
 

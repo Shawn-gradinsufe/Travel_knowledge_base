@@ -1,63 +1,32 @@
-'''第三步开始到最后所有'''
-from langgraph.constants import START, END
+"""
+旅游知识库导入链。
+
+链路：
+    入口分流 → (PDF 转 MD，仅 pdf 输入) → 元数据解析 → 文档切分
+             → 实体抽取 → 双向量化 → 导入 Milvus
+
+与商品手册版本的差异：
+- 新增 `node_metadata_parse`（正则解析元数据）和 `node_entity_extract`（实体抽取）；
+- 去掉 `node_item_name_recognition`（商品名识别，教育/旅游场景都不需要）；
+- 去掉 `node_md_img`（旅游语料 0 张图片，图片理解节点在本项目中空转，故不挂载）。
+"""
+from pathlib import Path
+
+from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
+from atguigu.config.config import TourismConfig
 from atguigu.import_process.nodes.node_bge_embedding import NodeBGEEmbedding
-from atguigu.import_process.nodes.node_document_spilt import NodeDocumentSplit
+from atguigu.import_process.nodes.node_document_split import NodeDocumentSplit
+from atguigu.import_process.nodes.node_entity_extract import NodeEntityExtract
 from atguigu.import_process.nodes.node_entry import NodeEntry
 from atguigu.import_process.nodes.node_import_milvus import NodeImportMilvus
-from atguigu.import_process.nodes.node_item_name_recognition import NodeItemNameRecognition
-from atguigu.import_process.nodes.node_md_img import NodeMDImg
+from atguigu.import_process.nodes.node_metadata_parse import NodeMetadataParse
 from atguigu.import_process.nodes.node_pdf_to_md import NodePDFToMD
 from atguigu.import_process.state import ImportGraphState
+from atguigu.tool.json_format import json_format
 from atguigu.tool.logger import logger
 
-# 创建builder
-# builder = StateGraph(state_schema=ImportGraphState)
-#
-# # 注册节点
-# builder.add_node(NodeEntry.name,NodeEntry())
-# builder.add_node(NodePDFToMD.name,NodePDFToMD())
-# builder.add_node(NodeMDImg.name,NodeMDImg())
-# builder.add_node(NodeDocumentSplit.name,NodeDocumentSplit())
-# builder.add_node(NodeItemNameRecognition.name,NodeItemNameRecognition())
-# builder.add_node(NodeBGEEmbedding.name,NodeBGEEmbedding())
-# builder.add_node(NodeImportMilvus.name,NodeImportMilvus())
-#
-# # 定义条件边的路由函数
-# def after_entry_router(state: ImportGraphState):
-#     is_pdf_read_enabled = state.get("is_pdf_read_enabled")
-#     is_md_read_enabled = state.get("is_md_read_enabled")
-#
-#     if is_pdf_read_enabled:
-#         return NodePDFToMD.name
-#     elif is_md_read_enabled:
-#         return NodeMDImg.name
-#     else:
-#         return END
-#
-# # 添加边
-# builder.add_edge(START,NodeEntry.name)
-# builder.add_contional_edges(NodeEntry.name,after_entry_router)
-# builder.add_edge(NodePDFToMD.name,NodeMDImg.name)
-# builder.add_edge(NodeMDImg.name,NodeDocumentSplit.name)
-# builder.add_edge(NodeDocumentSplit.name,NodeItemNameRecognition.name)
-# builder.add_edge(NodeItemNameRecognition.name,NodeBGEEmbedding.name)
-# builder.add_edge(NodeBGEEmbedding.name,NodeImportMilvus.name)
-# builder.add_edge(NodeImportMilvus.name,END)
-#
-# # 编译builder
-# graph = builder.compile()
-# print(graph)
-#
-# # 传入初始状态
-#
-#
-# init_state = {
-#     "local_file_path":r"E:\Python_projects\output\hak180产品安全手册.pdf"
-# }
-# result = graph.invoke(init_state)
-# logger.info(result)
 
 class MainGraphRunner:
     def __init__(self):
@@ -69,48 +38,81 @@ class MainGraphRunner:
     def add_nodes(self):
         self.builder.add_node(NodeEntry.name, NodeEntry())
         self.builder.add_node(NodePDFToMD.name, NodePDFToMD())
-        self.builder.add_node(NodeMDImg.name, NodeMDImg())
+        self.builder.add_node(NodeMetadataParse.name, NodeMetadataParse())
         self.builder.add_node(NodeDocumentSplit.name, NodeDocumentSplit())
-        self.builder.add_node(NodeItemNameRecognition.name, NodeItemNameRecognition())
+        self.builder.add_node(NodeEntityExtract.name, NodeEntityExtract())
         self.builder.add_node(NodeBGEEmbedding.name, NodeBGEEmbedding())
         self.builder.add_node(NodeImportMilvus.name, NodeImportMilvus())
+
+    def after_entry_router(self, state: ImportGraphState):
+        if state.get("is_pdf_read_enabled"):
+            return NodePDFToMD.name
+        if state.get("is_md_read_enabled"):
+            return NodeMetadataParse.name
+        return END
 
     def add_edges(self):
         self.builder.add_edge(START, NodeEntry.name)
         self.builder.add_conditional_edges(NodeEntry.name, self.after_entry_router)
-        self.builder.add_edge(NodePDFToMD.name, NodeMDImg.name)
-        self.builder.add_edge(NodeMDImg.name, NodeDocumentSplit.name)
-        self.builder.add_edge(NodeDocumentSplit.name, NodeItemNameRecognition.name)
-        self.builder.add_edge(NodeItemNameRecognition.name, NodeBGEEmbedding.name)
+        self.builder.add_edge(NodePDFToMD.name, NodeMetadataParse.name)
+        self.builder.add_edge(NodeMetadataParse.name, NodeDocumentSplit.name)
+        self.builder.add_edge(NodeDocumentSplit.name, NodeEntityExtract.name)
+        self.builder.add_edge(NodeEntityExtract.name, NodeBGEEmbedding.name)
         self.builder.add_edge(NodeBGEEmbedding.name, NodeImportMilvus.name)
         self.builder.add_edge(NodeImportMilvus.name, END)
 
-    def after_entry_router(self,state: ImportGraphState):
-        is_pdf_read_enabled = state.get("is_pdf_read_enabled")
-        is_md_read_enabled = state.get("is_md_read_enabled")
-
-        if is_pdf_read_enabled:
-            return NodePDFToMD.name
-        elif is_md_read_enabled:
-            return NodeMDImg.name
-        else:
-            return END
-
-    def run(self,state):
-        # 两个作用：1、懒加载 2、如果一个人实例化了一个对象，然后通过这个对象同时执行graph多次不能重复编译（单例）
+    def run(self, state):
+        # 懒加载 + 复用已编译图，避免重复编译
         if self.graph is None:
             self.graph = self.builder.compile()
-        result = self.graph.invoke(state)
-        return result
+        return self.graph.invoke(state)
 
     @classmethod
-    def create_and_run(cls,state):
+    def create_and_run(cls, state):
         return cls().run(state)
 
+
+def iter_corpus_files(data_root: str | None = None) -> list[Path]:
+    """遍历语料目录，返回所有待导入的 md 文件（按路径排序，保证顺序稳定）。"""
+    root = Path(data_root or TourismConfig.data_root)
+    if not root.exists():
+        raise FileNotFoundError(f"语料根目录不存在: {root}")
+    files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in (".md", ".pdf"))
+    return files
+
+
+def run_batch(data_root: str | None = None, task_id: str = "batch") -> dict:
+    """
+    批量导入整个语料目录。
+
+    单文件失败不中断整批：记录失败清单继续下一个，
+    对应需求里的「避免导入失败导致服务整体不可用」。
+    """
+    files = iter_corpus_files(data_root)
+    runner = MainGraphRunner()
+
+    ok, failed = [], []
+    for idx, path in enumerate(files, start=1):
+        logger.info(f"[{idx}/{len(files)}] 开始导入 {path.name}")
+        try:
+            result = runner.run({
+                "task_id": task_id,
+                "local_file_path": str(path),
+                "local_dir": str(path.parent),
+            })
+            ok.append({
+                "file": path.name,
+                "chunks": len(result.get("chunks") or []),
+                "entities": len(result.get("entity_names") or []),
+            })
+        except Exception as e:
+            logger.error(f"导入失败 {path.name}: {e}")
+            failed.append({"file": path.name, "error": str(e)})
+
+    logger.info(f"批量导入结束: 成功 {len(ok)}，失败 {len(failed)}")
+    return {"total": len(files), "ok": ok, "failed": failed}
+
+
 if __name__ == '__main__':
-    init_state = {
-        "local_file_path": r"E:\Python_projects\output\hak180产品安全手册.pdf",
-        "local_dir": r"E:\Python_projects\output",
-    }
-    result = MainGraphRunner.create_and_run(init_state)
-    logger.info(result)
+    summary = run_batch(task_id="tourism-batch")
+    logger.info(json_format(summary))

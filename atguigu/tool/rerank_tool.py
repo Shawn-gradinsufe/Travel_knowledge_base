@@ -1,7 +1,7 @@
 import dashscope
 from http import HTTPStatus
 
-from atguigu.import_process.config.config import RerankConfig
+from atguigu.config.config import RerankConfig
 from atguigu.tool.logger import logger
 # 以下为华北2（北京）地域的配置，调用时请将{WorkspaceId}替换为真实的业务空间ID，各地域的配置不同。
 dashscope.base_http_api_url = RerankConfig.rerank_base_url

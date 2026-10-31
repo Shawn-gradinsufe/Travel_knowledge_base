@@ -10,7 +10,7 @@ from langchain.chat_models import init_chat_model
 from minio.deleteobjects import DeleteObject
 
 from atguigu.import_process.base import NodeBase
-from atguigu.import_process.config.config import LLMConfig, MinioConfig
+from atguigu.config.config import LLMConfig, MinioConfig
 from atguigu.import_process.state import ImportGraphState
 from atguigu.tool.json_format import json_format
 from atguigu.tool.logger import logger
@@ -53,7 +53,7 @@ class NodeMDImg(NodeBase):
 
         return {
             "md_content": md_content,
-            "new_md_path_obj": str(new_md_path_obj)
+            "md_path": str(new_md_path_obj)
         }
 
     def replace_md_content(self, image_with_summary_url_list: list[Any], md_content: Path, md_path_obj: str) -> tuple[
@@ -65,7 +65,7 @@ class NodeMDImg(NodeBase):
                 lambda _: f"![{image_with_summary_url.get('summary')}]({image_with_summary_url.get('url')})",
                 md_content)
 
-        # 构造最新的md文件路径，把替换完成的内容写道最新的文件
+        # 构造最新的md文件路径，把替换完成的内容写到最新的文件
         new_md_path_obj = md_path_obj.parent / f"{md_path_obj.stem}_new.md"
         with open(new_md_path_obj, "w", encoding="utf-8") as f:
             f.write(md_content)

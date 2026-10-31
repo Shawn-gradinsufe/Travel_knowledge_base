@@ -29,8 +29,8 @@ class NodeDocumentSplit(NodeBase):
         final_chunk_list = self.get_final_chunk_list(file_title, split_section_list)
 
         # 把切分好的chunks变为json 存储到json文件，目的是为了下个节点要用的时候直接从json文档中去读
-        with open(r"E:\Python_projects\output\hak180产品安全手册\chunks.json","w",encoding="utf-8") as f:
-            f.write(json_format(final_chunk_list))
+        # with open(r"E:\Python_projects\output\hak180产品安全手册\chunks.json","w",encoding="utf-8") as f:
+        #     f.write(json_format(final_chunk_list))
 
         return {
             "chunks":final_chunk_list

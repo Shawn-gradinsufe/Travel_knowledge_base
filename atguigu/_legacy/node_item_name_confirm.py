@@ -4,8 +4,8 @@
 import json
 from typing import Any
 
-from atguigu.import_process.config.config import MilvusConfig
-from atguigu.import_process.config.prompt import ITEM_NAME_EXTRACT_SYSTEM_PROMPT, ITEM_NAME_EXTRACT_TEMPLATE
+from atguigu.config.config import MilvusConfig
+from atguigu.config.prompt import ITEM_NAME_EXTRACT_SYSTEM_PROMPT, ITEM_NAME_EXTRACT_TEMPLATE
 from atguigu.query_process.base import NodeBase
 from atguigu.query_process.state import QueryGraphState
 from atguigu.tool.get_bge_embeddings import get_bge_embedding
@@ -14,6 +14,7 @@ from atguigu.tool.json_format import json_format
 from atguigu.tool.logger import logger
 from atguigu.tool.milvus_client_tool import get_search_reqs, hybrid_search
 from atguigu.tool.mongo_tool import get_recent_messages, save_chat_messages, update_history_item_names
+from atguigu.tool.task_utils import create_queue
 
 
 class NodeItemNameConfirm(NodeBase):
@@ -75,7 +76,7 @@ class NodeItemNameConfirm(NodeBase):
             )
 
         history_list = get_recent_messages(session_id)
-        history_ids = [history.get('id') for history in history_list]
+        history_ids = [history.get('_id') for history in history_list]
         # 更新历史记录中的商品名称和重写问题
         update_history_item_names(ids=history_ids, item_names=final_item_names, rewritten_query=rewritten_query)
         return message_id
@@ -84,12 +85,12 @@ class NodeItemNameConfirm(NodeBase):
             -> tuple[str, list[Any]]: # 把检索整理的结果进行商品名称对齐:就是区分出确认的名字、可能的名字、噪音
         confirmed_item_names = [search_item_name.get("search_item_name")
                                 for search_item_name in search_item_name_list
-                                if search_item_name.get("score") >= 0.85]
+                                if search_item_name.get("score") >= 0.8]
         # 这里的confirmed_item_names是一个列表，里面是检索出来的商品名称，分数大于等于0.85的认为是确认的名字
 
         optional_item_names = [search_item_name.get("search_item_name")
                                for search_item_name in search_item_name_list
-                               if 0.6 <= search_item_name.get("score") < 0.85]
+                               if 0.6 <= search_item_name.get("score") < 0.8]
         # 这里是分数在0.65到0.85之间的认为是可能的名字
 
         # noise = [search_item_name.get("original_item_name")
@@ -138,7 +139,7 @@ class NodeItemNameConfirm(NodeBase):
             # 字典中有"id","distance","entity",其中entity是检索出来的结果，里面有item_name和file_title两个键
             # print(json_format(res))
 
-            if not reqs:  # 没有检索请求，就直接跳过
+            if not res:  # 没有检索请求，就直接跳过
                 continue
 
             for search_item_name_dict in res[0]:
@@ -209,9 +210,10 @@ if __name__ == '__main__':
     # save_chat_messages(session_id, "assistant", "您好。请问是哪个型号")
     # save_chat_messages(session_id, "user", "hak180")
     # save_chat_messages(session_id, "assistant", "具体有什么问题呢？")
-
+    create_queue("test_task")
     # 初始化图状态
     init_state = {
+        "task_id": "test_task",
         "session_id": "test_001",
         "original_query": "咋用？"
     }

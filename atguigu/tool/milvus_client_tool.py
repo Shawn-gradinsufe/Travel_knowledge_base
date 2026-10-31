@@ -1,6 +1,6 @@
 from pymilvus import MilvusClient, AnnSearchRequest, WeightedRanker
 
-from atguigu.import_process.config.config import MilvusConfig
+from atguigu.config.config import MilvusConfig
 
 milvus_client = None
 

@@ -1,10 +1,11 @@
 import shutil
 import time
+import requests
 from pathlib import Path
 from typing import Any
 
 from atguigu.import_process.base import NodeBase
-from atguigu.import_process.config.config import MineruConfig
+from atguigu.config.config import MineruConfig
 from atguigu.import_process.state import ImportGraphState
 from atguigu.tool.logger import logger
 
@@ -34,7 +35,6 @@ class NodePDFToMD(NodeBase):
         }
 
     def handler_md_file(self, local_dir_obj: Path, local_file_path_obj: Path, url) -> tuple[str, Path]:
-        import requests
         zip_res = requests.get(url)
         if zip_res.status_code != 200:
             logger.error("下载压缩包的内容请求失败")
@@ -72,50 +72,77 @@ class NodePDFToMD(NodeBase):
         return md_content, new_md_file_path_obj
 
     def get_zip_url(self, batch_id) -> Any:
-        import requests
 
+        # 拿着上传得到的batch_id去轮询获取mineru转化的md的压缩包路径
         token = MineruConfig.mineru_token
-        batch_id = batch_id
-        url = f"https://mineru.net/api/v4/extract-results/batch/{batch_id}"
+        query_url = f"https://mineru.net/api/v4/extract-results/batch/{batch_id}"
         header = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}"
         }
 
         total_time = 120
-        current_time = 0
-        # 轮询获取 隔2秒发一次请求，直到拿到需要的结果(实时)
+        start_time = time.time()
+
+        # 轮询获取 隔2秒发一次请求 直到拿到需要的结果
         while True:
+            # 检查是否超时
+            if time.time() - start_time > total_time:
+                logger.error("获取mineru转化的md的压缩包路径请求超时")
+                raise TimeoutError("获取mineru转化的md的压缩包路径请求超时")
+
             try:
-                start_time = time.time()
-                res = requests.get(url, headers=header)
-                # 判断请求成不成功
+                res = requests.get(query_url, headers=header, timeout=10)
+
+                # 判断网络请求是否成功
                 if res.status_code != 200:
-                    logger.error("获取mineru转化的md的压缩包路径请求失败")
-                    raise ValueError("获取mineru转化的md的压缩包路径请求失败")
+                    logger.warning(f"请求状态码非200: {res.status_code}，正在重试...")
+                    time.sleep(2)
+                    continue
 
-                # 请求成功拿请求体内容,判断数据那没拿到
                 result = res.json()
-                if result["code"] != 0:
-                    logger.error("获取mineru转化的md的压缩包路径请求数据获取失败")
+                if result.get("code") != 0:
+                    logger.warning(f"接口返回错误码: {result.get('code')}，正在重试...")
+                    time.sleep(2)
+                    continue
 
-                data = result["data"]
-                # 拿到数据后，判断数据拿的对不对
-                if data.get("extract_result")[0].get("state") != "done":
-                    logger.error("获取mineru转化的md的压缩包路径请求数据获取数据不对，解析还在处理")
-                    raise ValueError("获取mineru转化的md的压缩包路径请求数据获取数据不对，解析还在处理")
+                data = result.get("data")
+                extract_results = data.get("extract_result") if data else None
 
-                url = data.get("extract_result")[0].get("full_zip_url")
-                break
+                # 防止返回的列表为空
+                if not extract_results:
+                    time.sleep(2)
+                    continue
+
+                item = extract_results[0]
+                state = item.get("state")
+
+                # 核心修改：状态不是 done 时，不要抛异常，而是等待继续轮询
+                if state == "done":
+                    zip_url = item.get("full_zip_url")
+                    if zip_url:
+                        return zip_url
+                    else:
+                        logger.error("解析状态为done，但未获取到 full_zip_url")
+                        raise ValueError("解析完成但未找到压缩包下载地址")
+
+                elif state in ["failed", "error"]:
+                    logger.error(f"MinerU 解析失败，当前状态: {state}")
+                    raise ValueError(f"MinerU 文件解析失败，状态: {state}")
+                else:
+                    # 状态可能是 pending, running 等，属于正常排队中，继续等待
+                    # print(f"当前解析状态: {state}，继续等待...")
+                    pass
+
+            except requests.RequestException as e:
+                logger.warning(f"网络请求发生异常: {e}，正在重试...")
             except Exception as e:
-                time.sleep(2)
-                end_time = time.time()
-                current_time = end_time - start_time
-                if current_time > total_time:
-                    logger.error("获取mineru转化的md的压缩包路径请求超时")
-                    raise ValueError("获取mineru转化的md的压缩包路径请求超时")
-                continue
-        return url
+                # 如果是主动抛出的 ValueError 直接往外抛
+                if isinstance(e, ValueError):
+                    raise e
+                logger.warning(f"发生未知异常: {e}，正在重试...")
+
+            time.sleep(2)
 
     def upload_pdf_file(self, local_file_path: str, local_file_path_obj: Path) -> Any:
         import requests

@@ -1,2 +1,30 @@
+# ===== 密钥与环境 =====
 .env
+.env.*
+!.env.example
+
+# ===== 虚拟环境 =====
 .venv
+venv
+.test
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ===== 编辑器 / 系统 =====
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ===== Agent 工作区（不属于项目代码）=====
+.workbuddy-ai/
+
+# ===== 运行时产物 =====
+# output/ 里放的是语料数据，需要提交，所以不忽略；
+# 但如果以后有上传文件、解析中间产物，可以按需忽略具体子目录

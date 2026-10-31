@@ -1,7 +1,7 @@
 from typing import List
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
-from atguigu.import_process.config.config import BGEM3Config
+from atguigu.config.config import BGEM3Config
 from atguigu.tool.json_format import json_format
 
 bgem3_model = None

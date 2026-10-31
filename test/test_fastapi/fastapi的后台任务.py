@@ -16,8 +16,6 @@ def print_love(n,seconds=1):
         time.sleep(seconds)
         n -= 1
 
-
-
 @app.get("/backgroundtask")
 def background_task(background_tasks : BackgroundTasks):
     background_tasks.add_task(print_love, 10,seconds=2) # 后面的10是任务函数的参数

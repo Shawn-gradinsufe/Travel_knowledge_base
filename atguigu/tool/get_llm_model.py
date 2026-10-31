@@ -1,7 +1,6 @@
 from langchain.chat_models import init_chat_model
-from sympy.physics.units import temperature
 
-from atguigu.import_process.config.config import LLMConfig
+from atguigu.config.config import LLMConfig
 
 
 def get_vl_llm_model():

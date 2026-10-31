@@ -4,12 +4,11 @@ from typing import Any
 from pymilvus import DataType, MilvusClient
 
 from atguigu.import_process.base import NodeBase
-from atguigu.import_process.config.config import LLMConfig, MilvusConfig
-from atguigu.import_process.config.prompt import ITEM_NAME_SYSTEM_PROMPT, ITEM_NAME_USER_PROMPT_TEMPLATE
+from atguigu.config.config import MilvusConfig
+from atguigu.config.prompt import ITEM_NAME_SYSTEM_PROMPT, ITEM_NAME_USER_PROMPT_TEMPLATE
 from atguigu.import_process.state import ImportGraphState
 from atguigu.tool.get_bge_embeddings import get_bge_embedding
 from atguigu.tool.get_llm_model import get_item_llm_model
-from atguigu.tool.json_format import json_format
 from atguigu.tool.logger import logger
 from atguigu.tool.milvus_client_tool import get_milvus_client
 
@@ -74,8 +73,8 @@ class NodeItemNameRecognition(NodeBase):
         for chunk in chunks:
             chunk["item_name"] = item_name
 
-        with open(r"E:\Python_projects\output\hak180产品安全手册\chunks_item_name.json", "w", encoding="utf-8") as f:
-            f.write(json_format(chunks))
+        # with open(r"E:\Python_projects\output\hak180产品安全手册\chunks_item_name.json", "w", encoding="utf-8") as f:
+        #     f.write(json_format(chunks))
 
     def create_milvus_collection(self) -> MilvusClient:
         milvus_client = get_milvus_client()

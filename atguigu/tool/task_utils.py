@@ -1,7 +1,10 @@
+import queue
 import time
 from collections import defaultdict
 from queue import Queue
-from typing import Dict, List, Any
+from typing import Any, Dict, List
+
+from atguigu.tool.logger import logger
 
 # ---------------------------
 # 内存态任务追踪（单进程）
@@ -26,16 +29,18 @@ TASK_STATUS_FAILED = "failed"
 # 节点名 -> 中文名映射（用于前端展示）
 # 说明：这里的 key 应与 LangGraph 的 add_node("xxx", ...) 中的节点名一致。
 _NODE_NAME_TO_CN: Dict[str, str] = {
-    "upload_file": "开始上传文件",  
+    "upload_file": "开始上传文件",
     "node_entry": "检查文件",
     "node_pdf_to_md": "PDF转Markdown",
     "node_md_img": "Markdown图片处理",
-    "node_item_name_recognition": "主体名称识别",
+    "node_metadata_parse": "解析文档元数据",
     "node_document_split": "文档切分",
+    "node_entity_extract": "抽取景点实体",
     "node_bge_embedding": "向量生成",
     "node_import_milvus": "导入向量库",
 
     # --- Query 流程节点---
+    "node_query_analyze": "解析检索意图",
     "node_item_name_confirm": "确认问题产品",
     "node_answer_output": "生成答案",
     "node_rerank": "重排序",
@@ -162,15 +167,37 @@ def create_queue(task_id:str):
     return q_dict[task_id]
 
 def put_data(task_id,event,data):
+    """
+    往队列里放事件。
+
+    原实现是 `while not q_dict.get(task_id): time.sleep(1)`，
+    队列不存在时会**永久阻塞**后台线程（任务失败后线程就卡死在这里）。
+    这里加了等待上限：超时仍没有队列就丢弃事件并告警，让线程能正常退出。
+    """
+    deadline = time.time() + 10
     while not q_dict.get(task_id):
+        if time.time() > deadline:
+            logger.warning(f"队列不存在，丢弃事件 task_id={task_id} event={event}")
+            return
+        time.sleep(0.05)
+
+    q_dict[task_id].put({"event": event, "data": data})
+
+def get_data(task_id, timeout=None):
+    """
+    从队列取事件。
+
+    timeout=None 保持原行为（一直等）；传了 timeout 则在超时后抛 queue.Empty，
+    供 SSE 生成器做空闲超时判断。
+    """
+    while not q_dict.get(task_id):
+        if timeout is not None:
+            raise queue.Empty
         time.sleep(1)
 
     q = q_dict.get(task_id)
-    q.put({"event":event,"data":data})
+    return q.get(timeout=timeout)
 
-def get_data(task_id):
-    while not q_dict.get(task_id):
-        time.sleep(1)
-
-    q = q_dict.get(task_id)
-    return q.get()
+def remove_queue(task_id):
+    """任务结束后清理队列，避免长跑进程里字典无限增长。"""
+    q_dict.pop(task_id, None)
